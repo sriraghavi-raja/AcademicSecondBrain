@@ -1,0 +1,96 @@
+# ==========================================
+# Environments & Dependency Managers
+# ==========================================
+.venv/
+venv/
+ENV/
+env/
+# uv local cache (if configured locally)
+.uv/
+
+# ==========================================
+# Secrets & API Keys
+# ==========================================
+.env
+*.env
+*.pem
+*.key
+
+# ==========================================
+# RAG Databases & Persisted Stores
+# ==========================================
+# ChromaDB local storage
+chroma_db/
+./chroma_db/
+*.parquet
+
+# LlamaIndex persisted storage contexts
+storage/
+./storage/
+docstore.json
+vector_store.json
+index_store.json
+graph_store.json
+
+# ==========================================
+# Local Raw Data & Synthetic Datasets
+# ==========================================
+# Ignore raw data PDFs/docs if they are large or private
+src/data/*
+!src/data/.gitkeep
+
+# Generated evaluation datasets
+golden_dataset.json
+ragas_synthetic_dataset.csv
+pg_eval_dataset.json
+
+# ==========================================
+# Python Bytecode & Cache
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ==========================================
+# Testing, Coverage & Jupyter
+# ==========================================
+.pytest_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints
+
+# ==========================================
+# IDEs & Editor Configuration
+# ==========================================
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.db
+*.sqlite
+/uploads

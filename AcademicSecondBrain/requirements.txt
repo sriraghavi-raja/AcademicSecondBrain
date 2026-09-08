@@ -1,0 +1,23 @@
+# Core & Parsers
+llama-index
+llama-index-readers-file
+pytesseract
+easyocr
+docx2txt
+pymupdf
+
+# Vector DB
+chromadb
+llama-index-vector-stores-chroma
+
+# Retrievers & Rerankers
+llama-index-retrievers-bm25
+sentence-transformers
+
+# Local LLM / Embeddings (LM Studio & Ollama)
+llama-index-llms-ollama
+llama-index-llms-openai
+llama-index-embeddings-huggingface
+bcrypt>=4.0.0
+PyJWT>=2.8.0
+pydantic[email]>=2.0.0
