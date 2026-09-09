@@ -5,7 +5,13 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from src.services.career_service import extract_certification, generate_project_bullets, generate_resume, group_skills_by_category
+from src.services.career_service import (
+    extract_certification,
+    generate_project_bullets,
+    generate_resume,
+    group_skills_by_category,
+    suggest_skill_gaps,
+)
 
 
 class FakeLLM:
@@ -73,6 +79,22 @@ class CareerTests(unittest.TestCase):
             )
         self.assertEqual(result["title"], "sql advanced certificate (1)")
         add_evidence.assert_called_once_with("student-1", "SQL", "certification", "sql advanced certificate (1)", 0.75)
+
+    def test_skill_gap_analysis_parses_structured_model_response(self):
+        llm = FakeLLM('{"skills":["Python","SQL","Docker"]}')
+        graph = {"skills": [{"skill_name": "Python", "skill_type": "taxonomy"}]}
+        with patch("src.services.career_service.get_skill_graph", return_value=graph), \
+             patch("src.services.career_service.record_career_run") as record_run:
+            result = asyncio.run(
+                suggest_skill_gaps("student-1", "Requires Python, SQL, and Docker.", llm)
+            )
+        self.assertEqual(result["required_skills"], ["Python", "SQL", "Docker"])
+        self.assertEqual(
+            [gap["skill_name"] for gap in result["gaps"]],
+            ["SQL", "Docker"],
+        )
+        self.assertIn("Return JSON only", llm.prompts[0])
+        record_run.assert_called_once()
 
 
 if __name__ == "__main__":

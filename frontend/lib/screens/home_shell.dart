@@ -363,9 +363,331 @@ class _Page extends StatelessWidget {
         return CareerPage(api: auth.api);
       case 'Skill Zone':
         return SkillsPage(api: auth.api);
+      case 'Admin console':
+        return AdminOverviewPage(api: auth.api, currentUserId: auth.user!.id);
       default:
         return _ComingSoon(label: label);
     }
+  }
+}
+
+class AdminOverviewPage extends StatefulWidget {
+  const AdminOverviewPage({
+    required this.api,
+    required this.currentUserId,
+    super.key,
+  });
+  final ApiService api;
+  final String currentUserId;
+
+  @override
+  State<AdminOverviewPage> createState() => _AdminOverviewPageState();
+}
+
+class _AdminOverviewPageState extends State<AdminOverviewPage> {
+  final search = TextEditingController();
+  List<Map<String, dynamic>> users = [];
+  bool loading = true;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    search.addListener(() => setState(() {}));
+    _loadUsers();
+  }
+
+  @override
+  void dispose() {
+    search.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadUsers() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final result = await widget.api.adminUsers();
+      if (!mounted) return;
+      setState(() {
+        users = result
+            .map((user) => Map<String, dynamic>.from(user as Map))
+            .toList();
+        loading = false;
+      });
+    } on ApiException catch (exception) {
+      if (mounted)
+        setState(() {
+          error = exception.message;
+          loading = false;
+        });
+    }
+  }
+
+  List<Map<String, dynamic>> get filteredUsers {
+    final query = search.text.trim().toLowerCase();
+    if (query.isEmpty) return users;
+    return users.where((user) {
+      final text = '${user['name']} ${user['email']} ${user['role']}'
+          .toLowerCase();
+      return text.contains(query);
+    }).toList();
+  }
+
+  Future<void> _changeRole(Map<String, dynamic> user, String role) async {
+    final userId = '${user['user_id'] ?? user['id'] ?? ''}';
+    if (userId == widget.currentUserId) return;
+    try {
+      await widget.api.updateAdminUserRole(userId, role);
+      await _loadUsers();
+    } on ApiException catch (exception) {
+      if (mounted) setState(() => error = exception.message);
+    }
+  }
+
+  Future<void> _deleteUser(Map<String, dynamic> user) async {
+    final userId = '${user['user_id'] ?? user['id'] ?? ''}';
+    if (userId == widget.currentUserId) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete user?'),
+        content: Text(
+          'Delete ${user['name'] ?? 'this user'} and their account?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Brand.danger),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await widget.api.deleteAdminUser(userId);
+      await _loadUsers();
+    } on ApiException catch (exception) {
+      if (mounted) setState(() => error = exception.message);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final adminCount = users.where((user) => user['role'] == 'admin').length;
+    final studentCount = users.where((user) => user['role'] != 'admin').length;
+    return ListView(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Admin overview',
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Manage users and workspace access.',
+                    style: TextStyle(color: Colors.black54),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Refresh users',
+              onPressed: loading ? null : _loadUsers,
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+        const SizedBox(height: 22),
+        if (error != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            _AdminMetric(
+              label: 'Total users',
+              value: '${users.length}',
+              icon: Icons.people_outline,
+            ),
+            _AdminMetric(
+              label: 'Students',
+              value: '$studentCount',
+              icon: Icons.school_outlined,
+            ),
+            _AdminMetric(
+              label: 'Admins',
+              value: '$adminCount',
+              icon: Icons.admin_panel_settings_outlined,
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'User directory',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: search,
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    labelText: 'Search users',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (loading) const LinearProgressIndicator(),
+                if (!loading && filteredUsers.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Text(
+                      'No users found.',
+                      style: TextStyle(color: Colors.black54),
+                    ),
+                  ),
+                for (final user in filteredUsers)
+                  _AdminUserTile(
+                    user: user,
+                    isCurrentUser:
+                        '${user['user_id'] ?? user['id'] ?? ''}' ==
+                        widget.currentUserId,
+                    onRoleChanged: _changeRole,
+                    onDelete: _deleteUser,
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AdminMetric extends StatelessWidget {
+  const _AdminMetric({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+  final String label;
+  final String value;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 190,
+    child: Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Icon(icon, color: Brand.primary),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                    color: Brand.primary,
+                  ),
+                ),
+                Text(
+                  label,
+                  style: const TextStyle(color: Colors.black54, fontSize: 12),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _AdminUserTile extends StatelessWidget {
+  const _AdminUserTile({
+    required this.user,
+    required this.isCurrentUser,
+    required this.onRoleChanged,
+    required this.onDelete,
+  });
+  final Map<String, dynamic> user;
+  final bool isCurrentUser;
+  final Future<void> Function(Map<String, dynamic>, String) onRoleChanged;
+  final Future<void> Function(Map<String, dynamic>) onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final role = '${user['role'] ?? 'student'}';
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: CircleAvatar(
+        backgroundColor: Brand.primary.withValues(alpha: 0.12),
+        child: Text(
+          '${user['name'] ?? '?'}'.substring(0, 1).toUpperCase(),
+          style: const TextStyle(color: Brand.primary),
+        ),
+      ),
+      title: Text(
+        '${user['name'] ?? 'Unnamed user'}',
+        style: const TextStyle(fontWeight: FontWeight.w700),
+      ),
+      subtitle: Text('${user['email'] ?? ''}${isCurrentUser ? ' · You' : ''}'),
+      trailing: Wrap(
+        spacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          DropdownButton<String>(
+            value: role == 'admin' ? 'admin' : 'student',
+            onChanged: isCurrentUser
+                ? null
+                : (value) {
+                    if (value != null) onRoleChanged(user, value);
+                  },
+            items: const [
+              DropdownMenuItem(value: 'student', child: Text('Student')),
+              DropdownMenuItem(value: 'admin', child: Text('Admin')),
+            ],
+          ),
+          IconButton(
+            tooltip: isCurrentUser
+                ? 'You cannot delete yourself'
+                : 'Delete user',
+            onPressed: isCurrentUser ? null : () => onDelete(user),
+            icon: const Icon(Icons.delete_outline, color: Brand.danger),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -712,18 +1034,57 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Card(
-    clipBehavior: Clip.antiAlias,
-    child: SizedBox(
-      height: MediaQuery.sizeOf(context).height - 120,
-      child: Row(
-        children: [
-          SizedBox(width: 260, child: _sessionRail(context)),
-          const VerticalDivider(width: 1),
-          Expanded(child: _conversation(context)),
-        ],
+  Widget build(BuildContext context) {
+    final isCompact = MediaQuery.sizeOf(context).width < 760;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height - 120,
+        child: isCompact
+            ? _mobileChat(context)
+            : Row(
+                children: [
+                  SizedBox(width: 260, child: _sessionRail(context)),
+                  const VerticalDivider(width: 1),
+                  Expanded(child: _conversation(context)),
+                ],
+              ),
       ),
-    ),
+    );
+  }
+
+  Widget _mobileChat(BuildContext context) => Column(
+    children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+        child: Row(
+          children: [
+            OutlinedButton.icon(
+              onPressed: () => showModalBottomSheet<void>(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) => SafeArea(
+                  child: SizedBox(
+                    height: MediaQuery.sizeOf(context).height * 0.72,
+                    child: _sessionRail(context),
+                  ),
+                ),
+              ),
+              icon: const Icon(Icons.chat_bubble_outline, size: 18),
+              label: Text('Chats (${sessions.length})'),
+            ),
+            const Spacer(),
+            IconButton(
+              tooltip: 'New chat',
+              onPressed: _newSession,
+              icon: const Icon(Icons.add_circle_outline),
+            ),
+          ],
+        ),
+      ),
+      const Divider(height: 1),
+      Expanded(child: _conversation(context)),
+    ],
   );
 
   Widget _sessionRail(BuildContext context) => Container(
@@ -804,7 +1165,7 @@ class _ChatPageState extends State<ChatPage> {
   Widget _conversation(BuildContext context) => Column(
     children: [
       Padding(
-        padding: const EdgeInsets.fromLTRB(24, 18, 24, 14),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
         child: Row(
           children: [
             const CircleAvatar(
@@ -812,20 +1173,22 @@ class _ChatPageState extends State<ChatPage> {
               child: Icon(Icons.auto_awesome, color: Brand.primary),
             ),
             const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'RAG Bot',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-                ),
-                const Text(
-                  'Your documents, made conversational.',
-                  style: TextStyle(color: Colors.black54),
-                ),
-              ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'RAG Bot',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const Text(
+                    'Your documents, made conversational.',
+                    style: TextStyle(color: Colors.black54),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -841,7 +1204,7 @@ class _ChatPageState extends State<ChatPage> {
           ),
         ),
       Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(14),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [

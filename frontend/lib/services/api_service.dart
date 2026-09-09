@@ -15,7 +15,8 @@ class ApiException implements Exception {
 }
 
 class ApiService {
-  ApiService({String? baseUrl}) : baseUrl = baseUrl ?? 'http://127.0.0.1:8000';
+  ApiService({String? baseUrl})
+    : baseUrl = baseUrl ?? 'http://10.234.243.63:8000';
 
   final String baseUrl;
   String? accessToken;
@@ -201,6 +202,21 @@ class ApiService {
 
   Future<Map<String, dynamic>> careerDashboard() async =>
       Map<String, dynamic>.from(await get('/api/career/dashboard') as Map);
+
+  Future<List<dynamic>> adminUsers() async => List<dynamic>.from(
+    (await get('/api/admin/users') as Map)['users'] as List,
+  );
+
+  Future<Map<String, dynamic>> updateAdminUserRole(
+    String userId,
+    String role,
+  ) async => Map<String, dynamic>.from(
+    await patch('/api/admin/users/$userId/role', {'role': role}) as Map,
+  );
+
+  Future<void> deleteAdminUser(String userId) async {
+    await delete('/api/admin/users/$userId');
+  }
 
   Future<Map<String, dynamic>> getSkills() async =>
       Map<String, dynamic>.from(await get('/api/skills') as Map);

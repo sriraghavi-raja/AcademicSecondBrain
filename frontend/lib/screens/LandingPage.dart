@@ -40,44 +40,33 @@ class LandingPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isWide = MediaQuery.sizeOf(context).width >= 900;
+    final width = MediaQuery.sizeOf(context).width;
+    final isWide = width >= 900;
+    final isCompact = width < 600;
     return Scaffold(
       appBar: AppBar(
+        titleSpacing: isCompact ? 16 : 24,
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.menu_book_rounded, color: Brand.primary),
-            const SizedBox(width: 10),
+            Icon(
+              Icons.menu_book_rounded,
+              color: Brand.primary,
+              size: isCompact ? 26 : 30,
+            ),
+            SizedBox(width: isCompact ? 8 : 12),
             Flexible(
               child: Text(
                 'Academic Second Brain',
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: isCompact ? 22 : 28,
+                  letterSpacing: 0,
+                ),
               ),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => LoginPage(auth: auth)),
-            ),
-            child: const Text('Log in'),
-          ),
-          const SizedBox(width: 8),
-          FilledButton(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => SignupPage(auth: auth)),
-            ),
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4),
-              child: Text('Get started'),
-            ),
-          ),
-          const SizedBox(width: 16),
-        ],
       ),
       body: SingleChildScrollView(
         child: Center(
@@ -85,14 +74,14 @@ class LandingPage extends StatelessWidget {
             constraints: const BoxConstraints(maxWidth: 1100),
             child: Padding(
               padding: EdgeInsets.symmetric(
-                horizontal: isWide ? 32 : 20,
-                vertical: 32,
+                horizontal: isWide ? 32 : (isCompact ? 16 : 20),
+                vertical: isCompact ? 20 : 32,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _Hero(auth: auth, isWide: isWide),
-                  const SizedBox(height: 64),
+                  _Hero(auth: auth, isWide: isWide, isCompact: isCompact),
+                  SizedBox(height: isCompact ? 40 : 64),
                   Text(
                     'Everything one learning workspace needs',
                     textAlign: TextAlign.center,
@@ -108,33 +97,14 @@ class LandingPage extends StatelessWidget {
                       context,
                     ).textTheme.bodyLarge?.copyWith(color: Colors.black54),
                   ),
-                  const SizedBox(height: 32),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final columns = isWide ? 4 : 2;
-                      final gap = 16.0;
-                      final cardWidth =
-                          (constraints.maxWidth - gap * (columns - 1)) /
-                          columns;
-                      return Wrap(
-                        spacing: gap,
-                        runSpacing: gap,
-                        children: [
-                          for (final feature in _features)
-                            SizedBox(
-                              width: cardWidth,
-                              child: _FeatureCard(
-                                icon: feature.$1,
-                                title: feature.$2,
-                                text: feature.$3,
-                              ),
-                            ),
-                        ],
-                      );
-                    },
+                  SizedBox(height: isCompact ? 22 : 32),
+                  _FeatureCarousel(
+                    features: _features,
+                    isCompact: isCompact,
+                    isWide: isWide,
                   ),
-                  const SizedBox(height: 56),
-                  _ClosingCta(auth: auth),
+                  SizedBox(height: isCompact ? 36 : 56),
+                  _ClosingCta(auth: auth, isCompact: isCompact),
                   const SizedBox(height: 32),
                   Text(
                     '© ${DateTime.now().year} Academic Second Brain',
@@ -153,9 +123,14 @@ class LandingPage extends StatelessWidget {
 }
 
 class _Hero extends StatelessWidget {
-  const _Hero({required this.auth, required this.isWide});
+  const _Hero({
+    required this.auth,
+    required this.isWide,
+    required this.isCompact,
+  });
   final AuthController auth;
   final bool isWide;
+  final bool isCompact;
 
   Widget _copy(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
@@ -178,10 +153,11 @@ class _Hero extends StatelessWidget {
       ),
       const SizedBox(height: 20),
       Text(
-        'Your entire learning\njourney, in one place.',
+        'Your entire learning journey, in one place.',
         style: Theme.of(context).textTheme.displaySmall?.copyWith(
           fontWeight: FontWeight.w800,
-          height: 1.15,
+          fontSize: isCompact ? 34 : null,
+          height: isCompact ? 1.08 : 1.15,
         ),
       ),
       const SizedBox(height: 16),
@@ -193,7 +169,7 @@ class _Hero extends StatelessWidget {
           context,
         ).textTheme.titleMedium?.copyWith(color: Colors.black54, height: 1.4),
       ),
-      const SizedBox(height: 28),
+      SizedBox(height: isCompact ? 22 : 28),
       Wrap(
         spacing: 12,
         runSpacing: 12,
@@ -219,56 +195,61 @@ class _Hero extends StatelessWidget {
     ],
   );
 
-  Widget _illustration() => AspectRatio(
-    aspectRatio: 1,
-    child: Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Brand.primary, Brand.primaryDark],
+  Widget _illustration() => ConstrainedBox(
+    constraints: BoxConstraints(
+      maxWidth: isWide ? double.infinity : (isCompact ? 360 : 520),
+    ),
+    child: AspectRatio(
+      aspectRatio: isCompact ? 1.18 : 1,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(28),
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Brand.primary, Brand.primaryDark],
+          ),
         ),
-      ),
-      padding: const EdgeInsets.all(28),
-      child: Stack(
-        children: [
-          Positioned(
-            right: -20,
-            top: -20,
-            child: Icon(
-              Icons.auto_awesome,
-              size: 120,
-              color: Colors.white.withValues(alpha: 0.12),
+        padding: EdgeInsets.all(isCompact ? 22 : 28),
+        child: Stack(
+          children: [
+            Positioned(
+              right: -20,
+              top: -20,
+              child: Icon(
+                Icons.auto_awesome,
+                size: isCompact ? 92 : 120,
+                color: Colors.white.withValues(alpha: 0.12),
+              ),
             ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              const Spacer(),
-              const Icon(
-                Icons.menu_book_rounded,
-                color: Colors.white,
-                size: 44,
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Second Brain',
-                style: TextStyle(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                const Spacer(),
+                Icon(
+                  Icons.menu_book_rounded,
                   color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 22,
+                  size: isCompact ? 38 : 44,
                 ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Profile → Zones → Progress',
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.8)),
-              ),
-            ],
-          ),
-        ],
+                const SizedBox(height: 16),
+                Text(
+                  'Second Brain',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: isCompact ? 20 : 22,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Profile → Zones → Progress',
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.8)),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     ),
   );
@@ -278,7 +259,11 @@ class _Hero extends StatelessWidget {
     if (!isWide) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [_copy(context), const SizedBox(height: 32), _illustration()],
+        children: [
+          _copy(context),
+          SizedBox(height: isCompact ? 24 : 32),
+          _illustration(),
+        ],
       );
     }
     return IntrinsicHeight(
@@ -340,13 +325,106 @@ class _FeatureCard extends StatelessWidget {
   );
 }
 
+class _FeatureCarousel extends StatefulWidget {
+  const _FeatureCarousel({
+    required this.features,
+    required this.isCompact,
+    required this.isWide,
+  });
+
+  final List<(IconData, String, String)> features;
+  final bool isCompact;
+  final bool isWide;
+
+  @override
+  State<_FeatureCarousel> createState() => _FeatureCarouselState();
+}
+
+class _FeatureCarouselState extends State<_FeatureCarousel> {
+  late final PageController _controller;
+  int _selected = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = PageController(
+      viewportFraction: widget.isCompact ? 0.9 : (widget.isWide ? 0.48 : 0.72),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      SizedBox(
+        height: widget.isCompact ? 226 : 238,
+        child: PageView.builder(
+          controller: _controller,
+          itemCount: widget.features.length,
+          onPageChanged: (index) => setState(() => _selected = index),
+          itemBuilder: (context, index) {
+            final feature = widget.features[index];
+            return AnimatedBuilder(
+              animation: _controller,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 7),
+                child: _FeatureCard(
+                  icon: feature.$1,
+                  title: feature.$2,
+                  text: feature.$3,
+                ),
+              ),
+              builder: (context, child) {
+                final page = _controller.hasClients
+                    ? (_controller.page ?? _selected.toDouble())
+                    : _selected.toDouble();
+                final distance = (page - index).abs().clamp(0.0, 1.0);
+                return Transform.scale(
+                  scale: 1 - (distance * 0.045),
+                  child: child,
+                );
+              },
+            );
+          },
+        ),
+      ),
+      const SizedBox(height: 14),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          for (var index = 0; index < widget.features.length; index++)
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOut,
+              width: index == _selected ? 24 : 7,
+              height: 7,
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              decoration: BoxDecoration(
+                color: index == _selected
+                    ? Brand.primary
+                    : Brand.primary.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+        ],
+      ),
+    ],
+  );
+}
+
 class _ClosingCta extends StatelessWidget {
-  const _ClosingCta({required this.auth});
+  const _ClosingCta({required this.auth, required this.isCompact});
   final AuthController auth;
+  final bool isCompact;
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(32),
+    padding: EdgeInsets.all(isCompact ? 22 : 32),
     decoration: BoxDecoration(
       color: Brand.primary,
       borderRadius: BorderRadius.circular(24),
@@ -369,18 +447,21 @@ class _ClosingCta extends StatelessWidget {
           style: TextStyle(color: Colors.white.withValues(alpha: 0.85)),
         ),
         const SizedBox(height: 20),
-        FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: Colors.white,
-            foregroundColor: Brand.primaryDark,
-          ),
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => SignupPage(auth: auth)),
-          ),
-          child: const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 24),
-            child: Text('Create your free account'),
+        SizedBox(
+          width: isCompact ? double.infinity : null,
+          child: FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: Brand.primaryDark,
+            ),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => SignupPage(auth: auth)),
+            ),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24),
+              child: Text('Create your free account'),
+            ),
           ),
         ),
       ],

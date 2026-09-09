@@ -706,14 +706,17 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 
 | Test area | Command or scenario | Result | Evidence location |
 |---|---|---|---|
-| Authentication | `tests/test_auth.py` | Fill after final run | Test output |
-| Skills | `tests/test_skills.py` | Fill after final run | Test output |
-| GitHub connector | `tests/test_github_service.py` | Fill after final run | Test output |
-| Study system | `tests/test_study.py` | Fill after final run | Test output |
-| Career | `tests/test_career.py` | Fill after final run | Test output |
-| Dashboard | `tests/test_dashboard.py` | Fill after final run | Test output |
-| Flutter analysis | `flutter analyze` | Passed during development | Terminal output |
-| Android build | `flutter run` on Pixel 9a | Built and installed; runtime key issue recorded | Device logs |
+| Authentication | `uv run python -m unittest tests.test_auth -v` | **4 tests passed** (`OK`) | `AcademicSecondBrain/tests/test_auth.py`; terminal test output |
+| Skills | `uv run python -m unittest tests.test_skills -v` | **6 tests passed** (`OK`) | `AcademicSecondBrain/tests/test_skills.py`; terminal test output |
+| GitHub connector | `uv run python -m unittest tests.test_github_service -v` | **2 tests passed** (`OK`) | `AcademicSecondBrain/tests/test_github_service.py`; terminal test output |
+| Study system | `uv run python -m unittest tests.test_study -v` | **7 tests passed** (`OK`) | `AcademicSecondBrain/tests/test_study.py`; terminal test output |
+| Career | `uv run python -m unittest tests.test_career -v` | **5 tests passed** (`OK`) | `AcademicSecondBrain/tests/test_career.py`; terminal test output |
+| Dashboard | `uv run python -m unittest tests.test_dashboard -v` | **3 tests passed** (`OK`) | `AcademicSecondBrain/tests/test_dashboard.py`; terminal test output |
+| Complete backend regression suite | `uv run python -m unittest discover -s tests -v` | **38 tests passed, 0 failures** (`OK`). Non-blocking deprecation/future warnings were reported by dependencies and legacy UTC calls. | `AcademicSecondBrain/tests/`; terminal test output |
+| Flutter analysis | `cd frontend; flutter analyze` | **No issues found** | `frontend/`; terminal analyzer output |
+| Android build and run | `flutter run -d 61121XEBF4YB8B --dart-define=API_BASE_URL=http://192.168.137.1:8000` | **APK built and installed on Pixel 9a.** Backend URL was reachable. Runtime logs exposed a duplicate `GlobalKey` warning and related layout assertions; mobile runtime stability still requires a fix and retest. | `frontend/android/app/src/main/AndroidManifest.xml`; Pixel 9a device log |
+
+**Evidence summary:** The focused test run passed 28 tests across the six requested areas. The complete backend regression run passed 38 tests. Flutter static analysis passed with no issues. Android compilation and installation succeeded, but the runtime `GlobalKey` defect remains open and should not be reported as fully resolved until retested.
 
 ---
 

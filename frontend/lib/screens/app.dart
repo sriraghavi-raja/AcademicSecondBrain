@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
@@ -30,11 +31,13 @@ class _AcademicSecondBrainAppState extends State<AcademicSecondBrainApp> {
   @override
   void initState() {
     super.initState();
-    const configuredBaseUrl = String.fromEnvironment(
-      'API_BASE_URL',
-      defaultValue: 'http://127.0.0.1:8000',
+    const configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
+    final defaultBaseUrl = kIsWeb
+        ? 'http://127.0.0.1:8000'
+        : 'http://10.234.243.63:8000';
+    api = ApiService(
+      baseUrl: configuredBaseUrl.isEmpty ? defaultBaseUrl : configuredBaseUrl,
     );
-    api = ApiService(baseUrl: configuredBaseUrl);
     auth = AuthController(api);
     // Harmless no-op if there is no persisted access token yet; kept so a
     // future persistence layer (secure storage) can restore a session

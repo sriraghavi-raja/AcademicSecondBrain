@@ -66,6 +66,19 @@ Certificate text:
 \"\"\"
 """
 
+GAP_ANALYSIS_PROMPT = """
+Extract only the technical and professional skills explicitly required by the job description below.
+Match skills to common names where possible, but do not invent skills that are not present.
+Return JSON only, with exactly this shape:
+{{"skills": ["Python", "SQL"]}}
+Do not include markdown, explanations, or any text outside the JSON object.
+
+Job description:
+\"\"\"
+{job_description_text}
+\"\"\"
+"""
+
 
 with (Path(__file__).with_name("skill_categories.json")).open(encoding="utf-8") as category_file:
     SKILL_CATEGORIES = json.load(category_file)
@@ -255,10 +268,15 @@ async def generate_resume(student_id: str, retriever: Any, llm: Any, target_role
 async def suggest_skill_gaps(student_id: str, job_description_text: str, llm: Any) -> dict[str, Any]:
     if not job_description_text.strip():
         raise ValueError("job_description_text is required")
-    response = await llm.acomplete(json.dumps({"task": "extract skills", "text": job_description_text}))
+    response = await llm.acomplete(
+        GAP_ANALYSIS_PROMPT.format(job_description_text=job_description_text.strip())
+    )
     payload = _parse_json_object(getattr(response, "text", str(response)))
+    raw_skills = payload.get("skills")
+    if not isinstance(raw_skills, list) or any(not isinstance(skill, str) for skill in raw_skills):
+        raise ValueError("Career model response must contain a skills list")
     required = []
-    for raw_skill in payload.get("skills", []):
+    for raw_skill in raw_skills:
         canonical = merge_taxonomy_match(raw_skill)
         if canonical and canonical not in required:
             required.append(canonical)

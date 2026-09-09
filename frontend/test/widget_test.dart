@@ -17,7 +17,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Academic Second Brain'), findsOneWidget);
-    expect(find.text('Log in'), findsOneWidget);
-    expect(find.text('Get started'), findsOneWidget);
+    expect(find.text('Create your account'), findsOneWidget);
+    expect(find.text('I already have one'), findsOneWidget);
   });
 }
