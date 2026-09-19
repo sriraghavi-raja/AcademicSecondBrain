@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from src.services.github_service import sync_github
+from tests.support import IsolatedDatabaseTestCase
 
 
 class FakeResponse:
@@ -13,7 +14,7 @@ class FakeResponse:
         return self.payload
 
 
-class GitHubServiceTests(unittest.TestCase):
+class GitHubServiceTests(IsolatedDatabaseTestCase):
     def test_sync_maps_languages_and_keeps_partial_progress(self):
         responses = {
             "https://api.github.com/users/alice/repos?per_page=10": FakeResponse(

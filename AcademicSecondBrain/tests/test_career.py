@@ -12,6 +12,7 @@ from src.services.career_service import (
     group_skills_by_category,
     suggest_skill_gaps,
 )
+from tests.support import IsolatedDatabaseTestCase
 
 
 class FakeLLM:
@@ -24,8 +25,9 @@ class FakeLLM:
         return SimpleNamespace(text=self.output)
 
 
-class CareerTests(unittest.TestCase):
+class CareerTests(IsolatedDatabaseTestCase):
     def setUp(self):
+        super().setUp()
         self.profile = {
             "student_id": "student-1", "full_name": "Sri Raghavi N", "email": "student@example.com",
             "phone": "123", "location": "Coimbatore", "college_name": "Example Institute",
