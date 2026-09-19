@@ -1,9 +1,6 @@
-import io
-import os
 import unittest
 from unittest.mock import Mock, patch
 
-from src.services.document_service import DocumentService
 from src.services.rag_service import RagService
 from src.services.session_service import SessionService
 
@@ -31,67 +28,6 @@ class RagServiceTests(unittest.IsolatedAsyncioTestCase):
             session_id="session",
             node_postprocessors=["postprocessor"],
         )
-
-
-class DocumentServiceTests(unittest.TestCase):
-    def setUp(self):
-        self.index = Mock()
-        self.retriever_factory = Mock()
-        self.service = DocumentService(self.index, self.retriever_factory, "uploads", persist_dir="persist")
-
-    @patch("src.services.document_service.list_documents")
-    def test_list_documents_preserves_api_mapping(self, list_documents):
-        list_documents.return_value = [
-            {"file_name": "paper.pdf", "file_path": "uploads/paper.pdf", "part_ids": ["a", "b"]}
-        ]
-
-        self.assertEqual(
-            self.service.list_documents("user-1"),
-            [
-                {
-                    "document_id": "paper.pdf",
-                    "filename": "paper.pdf",
-                    "file_path": "uploads/paper.pdf",
-                    "chunk_count": 2,
-                    "ingested_at": "unknown",
-                }
-            ],
-        )
-
-    @patch("src.services.document_service.os.makedirs")
-    @patch("src.services.document_service.ingest_new_documents")
-    def test_ingest_scopes_to_the_owner_and_returns_existing_response(self, ingest, makedirs):
-        ingest.return_value = {
-            "added_total_nodes": 3,
-            "added_leaf_nodes": 2,
-        }
-
-        with patch("builtins.open", unittest.mock.mock_open()) as open_file:
-            result = self.service.ingest_document("user-1", io.BytesIO(b"data"), "paper.pdf")
-
-        ingest.assert_called_once_with(
-            [os.path.join("uploads", "paper.pdf")], self.index, "user-1", persist_dir="persist"
-        )
-        self.retriever_factory.invalidate.assert_called_once_with("user-1")
-        self.assertEqual(result["message"], "Document ingested successfully")
-        self.assertEqual(result["document_id"], "paper.pdf")
-        self.assertEqual(result["metadata"]["added_total_nodes"], 3)
-        open_file.assert_called_once()
-
-    @patch("src.services.document_service.delete_document")
-    def test_delete_scopes_to_the_owner_and_refreshes_retrieval(self, delete):
-        delete.return_value = {"status": "success"}
-
-        result = self.service.delete_document("user-1", "paper.pdf")
-
-        delete.assert_called_once_with(
-            file_name="paper.pdf",
-            index=self.index,
-            owner_id="user-1",
-            persist_dir="persist",
-        )
-        self.retriever_factory.invalidate.assert_called_once_with("user-1")
-        self.assertEqual(result, {"message": "Document paper.pdf deleted"})
 
 
 class SessionServiceTests(unittest.TestCase):

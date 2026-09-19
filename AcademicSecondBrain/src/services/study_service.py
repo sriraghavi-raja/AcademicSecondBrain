@@ -8,6 +8,7 @@ from typing import Any
 
 from ics import Calendar, Event
 
+from src.rag.ingestion.metadata import FILE_KEY, OWNER_KEY
 from src.rag.registry.skills import upsert_skill, upsert_skill_evidence
 from src.rag.registry.study import (
     insert_quiz_attempt,
@@ -83,19 +84,20 @@ def _canonicalize_concept_tag(concept_tag: str) -> tuple[str, str]:
     return normalized.title(), "study_topic"
 
 
-def _document_leaf_nodes(index: Any, document_id: str) -> list[Any]:
+def _document_leaf_nodes(index: Any, owner_id: str, document_id: str) -> list[Any]:
     return [
         node
         for node in index.docstore.docs.values()
-        if (node.metadata.get("file_name") == document_id or node.metadata.get("file_path") == document_id)
+        if node.metadata.get(OWNER_KEY) == owner_id
+        and node.metadata.get(FILE_KEY) == document_id
         and not node.child_nodes
     ]
 
 
-async def generate_quiz(index: Any, llm: Any, document_id: str, num_questions: int = 5) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+async def generate_quiz(index: Any, llm: Any, owner_id: str, document_id: str, num_questions: int = 5) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not 1 <= num_questions <= 20:
         raise ValueError("num_questions must be between 1 and 20")
-    nodes = _document_leaf_nodes(index, document_id)
+    nodes = _document_leaf_nodes(index, owner_id, document_id)
     if not nodes:
         raise ValueError(f"No leaf nodes found for document: {document_id}")
 
@@ -150,18 +152,12 @@ def get_weak_topics(student_id: str, threshold: float = 0.7) -> list[dict[str, A
     return sorted(weak_topics, key=lambda topic: (topic["accuracy"], topic["last_answered_at"]))
 
 
-def _syllabus_text(index: Any, document_id: str) -> str:
-    chunks = []
-    for node in index.docstore.docs.values():
-        metadata = node.metadata
-        if metadata.get("file_name") == document_id or metadata.get("file_path") == document_id:
-            if not node.child_nodes:
-                chunks.append(node.get_content())
-    return "\n\n".join(chunks)
+def _syllabus_text(index: Any, owner_id: str, document_id: str) -> str:
+    return "\n\n".join(node.get_content() for node in _document_leaf_nodes(index, owner_id, document_id))
 
 
-async def parse_syllabus(index: Any, llm: Any, document_id: str) -> dict[str, Any]:
-    syllabus_text = _syllabus_text(index, document_id)
+async def parse_syllabus(index: Any, llm: Any, owner_id: str, document_id: str) -> dict[str, Any]:
+    syllabus_text = _syllabus_text(index, owner_id, document_id)
     if not syllabus_text:
         raise ValueError(f"No syllabus content found for document: {document_id}")
     response = await llm.acomplete(SYLLABUS_PARSE_PROMPT.format(syllabus_text=syllabus_text))

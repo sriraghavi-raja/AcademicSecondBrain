@@ -39,7 +39,7 @@ async def create_study_plan(
     current_user: Annotated[dict, Depends(get_current_user)],
 ):
     try:
-        await parse_syllabus(request.app.state.index, request.app.state.llm, data.syllabus_id)
+        await parse_syllabus(request.app.state.index, request.app.state.llm, current_user["user_id"], data.syllabus_id)
         return build_study_plan(current_user["user_id"], data.syllabus_id, data.weak_topics)
     except (ValueError, json.JSONDecodeError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -58,11 +58,16 @@ def export_plan(plan_id: str):
 
 
 @router.post("/quiz")
-async def create_quiz(request_data: QuizRequest, request: Request):
+async def create_quiz(
+    request_data: QuizRequest,
+    request: Request,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
     try:
         questions, errors = await generate_quiz(
             request.app.state.index,
             request.app.state.llm,
+            current_user["user_id"],
             request_data.document_id,
             request_data.num_questions,
         )

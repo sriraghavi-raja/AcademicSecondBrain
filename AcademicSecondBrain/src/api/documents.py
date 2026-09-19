@@ -18,13 +18,16 @@ def get_documents_endpoint(request: Request, current_user: Annotated[dict, Depen
 
 
 @router.post("/docs/upload")
-async def upload_document_endpoint(
+def upload_document_endpoint(
     request: Request,
     current_user: Annotated[dict, Depends(get_current_user)],
     file: UploadFile = File(...)
 ):
     """
-    Uploads and ingests a new document (PDF, DOCX, PPTX, etc.) owned by the caller.
+    Uploads and ingests a new document (PDF, DOCX, PPTX, TXT or MD) owned by the caller.
+
+    A plain def on purpose: FastAPI runs it in a worker thread, so the slow embedding work
+    does not freeze every other request, including streaming chats.
     """
     try:
         return request.app.state.document_service.ingest_document(current_user["user_id"], file.file, file.filename)

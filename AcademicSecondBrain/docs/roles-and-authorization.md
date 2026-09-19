@@ -99,7 +99,9 @@ Chat sessions and mock-interview sessions are owned by the user who created them
 
 Documents are owned through an `owner_id` stamped on every indexed node at upload. Retrieval (vector and BM25), the document list, and document delete only ever see the caller's own nodes, so one user's chat can never retrieve another user's documents.
 
-Not yet isolated: `document_id` is still the uploaded filename, and the quiz, syllabus, and study-plan endpoints still look documents up by that name without checking the owner. Do not describe those endpoints as strict per-student isolation until they are scoped too.
+Each upload gets a server-generated `document_id` recorded with its owner in the `documents` table, and files are stored under `uploads/<user_id>/<document_id>/` with a fixed name, so two users can upload the same filename without touching each other. Quiz generation and syllabus parsing only read the caller's own document.
+
+Not yet isolated: study-plan export and the parsed syllabus topics are looked up by id without checking the owner, and quiz attempts are not checked against a document. Do not describe the study endpoints as strict per-student isolation until they are scoped too.
 
 ## 4. Student permissions
 
@@ -362,7 +364,7 @@ When an endpoint returns `403`:
 
 - Never trust a role sent by the frontend without backend validation.
 - Never use a URL `student_id` to decide ownership.
-- Treat authenticated-only access as different from strict per-user ownership: quiz, syllabus, and study-plan document lookups are not yet owner-scoped.
+- Treat authenticated-only access as different from strict per-user ownership: study-plan export and parsed syllabus topics are not yet owner-scoped.
 - Never expose password hashes or refresh-token hashes in API responses.
 - Never expose `ADMIN_SIGNUP_KEY` to the browser.
 - Do not put access tokens or refresh tokens in URLs.

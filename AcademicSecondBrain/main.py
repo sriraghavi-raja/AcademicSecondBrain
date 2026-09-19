@@ -17,6 +17,7 @@ from src.services.auth_service import AuthService
 from src.rag.registry import skills
 from src.rag.registry import study
 from src.rag.registry import career
+from src.rag.registry import documents as documents_registry
 from src.services import DocumentService, RagService, SessionService
 
 load_dotenv()
@@ -28,6 +29,7 @@ async def lifespan(app: FastAPI):
     skills.init_db()
     study.init_db()
     career.init_db()
+    documents_registry.init_db()
     # 1. Fetch Groq API Key from environment
     groq_api_key = os.getenv("GROQ_API_KEY")
     if not groq_api_key:
@@ -68,6 +70,9 @@ async def lifespan(app: FastAPI):
         upload_dir=os.getenv("UPLOAD_DIR", "uploads"),
         persist_dir=PERSIST_DIR,
     )
+    recovered = app.state.document_service.recover_interrupted_uploads()
+    if recovered:
+        print(f"\nCleaned up {recovered} upload(s) that were interrupted by the last shutdown.")
     app.state.session_service = SessionService()
 
     yield

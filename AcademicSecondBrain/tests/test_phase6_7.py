@@ -20,11 +20,13 @@ class FakeLLM:
 
 class Phase67Tests(IsolatedDatabaseTestCase):
     def test_parse_syllabus_fixture_formats(self):
-        nodes = [SimpleNamespace(metadata={"file_name": "syllabus.pdf"}, child_nodes=[], get_content=lambda: "Week 1: Python\nWeek 2: SQL")]
+        nodes = [SimpleNamespace(metadata={"owner_id": "student", "file_id": "syllabus-id"}, child_nodes=[], get_content=lambda: "Week 1: Python\nWeek 2: SQL")]
         index = SimpleNamespace(docstore=SimpleNamespace(docs={"1": nodes[0]}))
         payload = '{"topics":[{"topic":"Python","date_or_week":"Week 1","weight":1},{"topic":"SQL","date_or_week":"Week 2","weight":1}]}'
-        result = asyncio.run(parse_syllabus(index, FakeLLM(payload), "syllabus.pdf"))
+        result = asyncio.run(parse_syllabus(index, FakeLLM(payload), "student", "syllabus-id"))
         self.assertEqual(len(result["topics"]), 2)
+        with self.assertRaisesRegex(ValueError, "No syllabus content"):
+            asyncio.run(parse_syllabus(index, FakeLLM(payload), "someone-else", "syllabus-id"))
 
     def test_weak_topics_receive_more_sessions_and_ics_exports(self):
         study_registry.replace_syllabus_topics("syllabus", [

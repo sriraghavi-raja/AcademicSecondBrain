@@ -38,12 +38,12 @@ class StudyTests(unittest.TestCase):
     def test_quiz_fixture_generation_and_validation(self):
         item = '{"question":"What is Python?","options":["Language","Database","OS","Protocol"],"correct_option":0,"explanation":"Python is a language.","concept_tag":"python"}'
         node = SimpleNamespace(
-            metadata={"file_name": "paper.pdf"},
+            metadata={"owner_id": "student-1", "file_id": "paper-id"},
             child_nodes=[],
             get_content=lambda: "Python is a programming language.",
         )
         index = SimpleNamespace(docstore=SimpleNamespace(docs={"node": node}))
-        questions, errors = asyncio.run(generate_quiz(index, FakeLLM(item), "paper.pdf", 1))
+        questions, errors = asyncio.run(generate_quiz(index, FakeLLM(item), "student-1", "paper-id", 1))
         self.assertEqual(questions[0]["correct_option"], 0)
         self.assertEqual(questions[0]["concept_tag"], "python")
         self.assertEqual(errors, [])
@@ -51,15 +51,29 @@ class StudyTests(unittest.TestCase):
     def test_quiz_generation_keeps_valid_nodes_when_one_node_is_invalid(self):
         valid = '{"question":"Q","options":["A","B","C","D"],"correct_option":0,"explanation":"E","concept_tag":"python"}'
         invalid = '{"question":"Q","options":["same","same","C","D"],"correct_option":0,"explanation":"E","concept_tag":"python"}'
+        owned = {"owner_id": "student-1", "file_id": "paper-id"}
         nodes = [
-            SimpleNamespace(node_id="good", metadata={"file_name": "paper.pdf"}, child_nodes=[], get_content=lambda: "good"),
-            SimpleNamespace(node_id="bad", metadata={"file_name": "paper.pdf"}, child_nodes=[], get_content=lambda: "bad"),
-            SimpleNamespace(node_id="good-2", metadata={"file_name": "paper.pdf"}, child_nodes=[], get_content=lambda: "good-2"),
+            SimpleNamespace(node_id="good", metadata=owned, child_nodes=[], get_content=lambda: "good"),
+            SimpleNamespace(node_id="bad", metadata=owned, child_nodes=[], get_content=lambda: "bad"),
+            SimpleNamespace(node_id="good-2", metadata=owned, child_nodes=[], get_content=lambda: "good-2"),
         ]
         index = SimpleNamespace(docstore=SimpleNamespace(docs={str(i): node for i, node in enumerate(nodes)}))
-        questions, errors = asyncio.run(generate_quiz(index, FakeLLM([valid, invalid, valid]), "paper.pdf", 3))
+        questions, errors = asyncio.run(generate_quiz(index, FakeLLM([valid, invalid, valid]), "student-1", "paper-id", 3))
         self.assertEqual(len(questions), 2)
         self.assertEqual(errors, [{"node_id": "bad", "error": "Quiz options must be unique"}])
+
+    def test_quiz_only_uses_the_callers_own_document(self):
+        node = SimpleNamespace(
+            node_id="n", metadata={"owner_id": "student-2", "file_id": "their-paper"}, child_nodes=[],
+            get_content=lambda: "secret",
+        )
+        index = SimpleNamespace(docstore=SimpleNamespace(docs={"n": node}))
+        llm = FakeLLM("{}")
+
+        with self.assertRaisesRegex(ValueError, "No leaf nodes found"):
+            asyncio.run(generate_quiz(index, llm, "student-1", "their-paper", 1))
+        with self.assertRaisesRegex(ValueError, "No leaf nodes found"):
+            asyncio.run(generate_quiz(index, llm, "student-1", "paper.pdf", 1))
 
     def test_malformed_quiz_items_are_rejected(self):
         invalid = '{"question":"Q","options":["same","same","three","four"],"correct_option":4,"explanation":"x","concept_tag":"python"}'

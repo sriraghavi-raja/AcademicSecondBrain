@@ -1,62 +1,16 @@
-import io
 import shutil
-import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
-from llama_index.core import Settings
-from llama_index.core.embeddings import MockEmbedding
 from llama_index.core.schema import MetadataMode
 
 from src.api import documents_router
 from src.api.auth import get_current_user
 from src.rag.ingestion import indexer
-from src.rag.retrieval import retreiver
 from src.services.auth_service import AuthService
-from src.services.document_service import DocumentService
-from tests.support import IsolatedDatabaseTestCase
-
-ORCHID = "orchidalpha"
-GRANITE = "granitebeta"
-QUARTZ = "quartzgamma"
-
-
-def article(token: str) -> str:
-    """Long enough to be split into several levels of the node hierarchy."""
-    return " ".join(f"Sentence {number} about {token} and other general study topics." for number in range(120))
-
-
-class IndexedTestCase(IsolatedDatabaseTestCase):
-    """A real Chroma-backed index in a temp folder, embedded with a mock model (no LM Studio needed)."""
-
-    def setUp(self):
-        super().setUp()
-        workspace = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
-        self.addCleanup(workspace.cleanup)
-        embedding = patch.object(Settings, "_embed_model", MockEmbedding(embed_dim=8))
-        embedding.start()
-        self.addCleanup(embedding.stop)
-        root = Path(workspace.name)
-        self.chroma_path = str(root / "chroma")
-        self.persist_dir = str(root / "storage")
-        self.upload_dir = str(root / "uploads")
-        self.index = indexer.load_or_create_index(db_path=self.chroma_path, persist_dir=self.persist_dir)
-        self.factory = retreiver.RetrieverFactory(self.index)
-        self.documents = DocumentService(
-            self.index, self.factory, upload_dir=self.upload_dir, persist_dir=self.persist_dir
-        )
-
-    def upload(self, owner, filename, text):
-        return self.documents.ingest_document(owner, io.BytesIO(text.encode()), filename)
-
-    def retrieve(self, user, query):
-        return self.factory.for_user(user).retrieve(query)
-
-    def filenames(self, owner):
-        return [document["filename"] for document in self.documents.list_documents(owner)]
+from tests.support import GRANITE, ORCHID, QUARTZ, IndexedTestCase, article
 
 
 class IndexLifecycleTests(IndexedTestCase):
@@ -129,54 +83,50 @@ class DocumentOwnershipTests(IndexedTestCase):
         self.assertEqual(self.filenames("carol"), [])
 
     def test_the_same_filename_for_two_users_stays_separate(self):
-        self.upload("alice", "notes.txt", article(ORCHID))
-        self.upload("bob", "notes.txt", article(GRANITE))
+        alice_document = self.upload("alice", "notes.txt", article(ORCHID))["document_id"]
+        bob_document = self.upload("bob", "notes.txt", article(GRANITE))["document_id"]
+        self.assertNotEqual(alice_document, bob_document)
 
-        self.documents.delete_document("alice", "notes.txt")
+        self.documents.delete_document("alice", alice_document)
 
         self.assertEqual(self.filenames("alice"), [])
         self.assertEqual(self.filenames("bob"), ["notes.txt"])
         self.assertTrue(self.retrieve("bob", GRANITE))
 
     def test_deleting_someone_elses_document_is_a_404_and_changes_nothing(self):
-        self.upload("alice", "notes.txt", article(ORCHID))
+        alice_document = self.upload("alice", "notes.txt", article(ORCHID))["document_id"]
 
         with self.assertRaises(HTTPException) as caught:
-            self.documents.delete_document("bob", "notes.txt")
+            self.documents.delete_document("bob", alice_document)
 
         self.assertEqual(caught.exception.status_code, 404)
         self.assertEqual(self.filenames("alice"), ["notes.txt"])
         self.assertTrue(self.retrieve("alice", ORCHID))
 
-    def test_delete_matches_the_exact_filename_only(self):
-        self.upload("alice", "notes.txt", article(ORCHID))
-        self.upload("alice", "my_notes.txt", article(QUARTZ))
-
-        self.documents.delete_document("alice", "notes.txt")
-
-        self.assertEqual(self.filenames("alice"), ["my_notes.txt"])
-
     def test_deleted_documents_leave_the_vectors_the_docstore_and_retrieval(self):
-        self.upload("alice", "a.txt", article(ORCHID))
+        document_id = self.upload("alice", "a.txt", article(ORCHID))["document_id"]
         self.assertGreater(self.index.vector_store.client.count(), 0)
 
-        self.documents.delete_document("alice", "a.txt")
+        self.documents.delete_document("alice", document_id)
 
         self.assertEqual(self.index.vector_store.client.count(), 0)
         self.assertEqual(len(self.index.docstore.docs), 0)
         self.assertEqual(self.retrieve("alice", ORCHID), [])
 
-    def test_uploads_are_stamped_with_their_owner_and_bookkeeping_stays_out_of_prompts(self):
-        self.upload("alice", "a.txt", article(ORCHID))
+    def test_nodes_carry_owner_file_id_and_original_name_but_prompts_do_not_show_bookkeeping(self):
+        document_id = self.upload("alice", "My Notes.txt", article(ORCHID))["document_id"]
 
         nodes = list(self.index.docstore.docs.values())
 
         self.assertGreater(len(nodes), 1)
         for node in nodes:
             self.assertEqual(node.metadata["owner_id"], "alice")
+            self.assertEqual(node.metadata["file_id"], document_id)
+            self.assertEqual(node.metadata["file_name"], "My Notes.txt")
             for mode in (MetadataMode.EMBED, MetadataMode.LLM):
                 text = node.get_content(metadata_mode=mode)
                 self.assertNotIn("alice", text)
+                self.assertNotIn(document_id, text)
                 self.assertNotIn(self.upload_dir, text)
 
 
@@ -204,12 +154,13 @@ class DocumentApiOwnershipTests(IndexedTestCase):
             "/api/docs/upload", files={"file": ("notes.txt", article(ORCHID).encode())}, headers=self.alice
         )
         self.assertEqual(uploaded.status_code, 200)
+        document_id = uploaded.json()["document_id"]
 
         self.assertEqual([d["filename"] for d in self.client.get("/api/docs", headers=self.alice).json()], ["notes.txt"])
         self.assertEqual(self.client.get("/api/docs", headers=self.bob).json(), [])
-        self.assertEqual(self.client.delete("/api/docs/notes.txt", headers=self.bob).status_code, 404)
+        self.assertEqual(self.client.delete(f"/api/docs/{document_id}", headers=self.bob).status_code, 404)
         self.assertEqual(len(self.client.get("/api/docs", headers=self.alice).json()), 1)
-        self.assertEqual(self.client.delete("/api/docs/notes.txt", headers=self.alice).status_code, 200)
+        self.assertEqual(self.client.delete(f"/api/docs/{document_id}", headers=self.alice).status_code, 200)
         self.assertEqual(self.client.get("/api/docs", headers=self.alice).json(), [])
 
 
