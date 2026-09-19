@@ -790,7 +790,7 @@ Request:
 
 ```json
 {
-  "syllabus_id": "syllabus.pdf",
+  "syllabus_id": "3f6c1a52-8d0e-4c7b-9a21-5e4f0b7d1c88",
   "weak_topics": [
     {
       "concept_tag": "Python",
@@ -800,7 +800,7 @@ Request:
 }
 ```
 
-`weak_topics` is optional. When omitted, the server uses the user's recorded weak quiz topics.
+`weak_topics` is optional. When omitted (or empty), the server uses the user's recorded weak quiz topics. Each item needs a non-empty `concept_tag`; `accuracy`, `attempt_count`, and `last_answered_at` are optional, so the items returned by `GET /api/study/weak-topics` can be sent back as they are. A malformed item returns `422`.
 
 Success:
 
@@ -808,7 +808,7 @@ Success:
 {
   "plan_id": "plan-uuid",
   "student_id": "3594f828-14fd-4eaa-b29d-4b66591178a8",
-  "syllabus_id": "syllabus.pdf",
+  "syllabus_id": "3f6c1a52-8d0e-4c7b-9a21-5e4f0b7d1c88",
   "sessions": [
     {
       "date": "2026-09-05",
@@ -820,11 +820,11 @@ Success:
 }
 ```
 
-The `syllabus_id` is the `document_id` of one of the authenticated user's own documents, and it must contain parseable syllabus content.
+The `syllabus_id` is the `document_id` of one of the authenticated user's own documents, and it must contain parseable syllabus content. Returns `404` if the user has no such document, including when another user does. Parsed syllabus topics are stored per user.
 
 ### GET `/api/study/plan/{plan_id}/export`
 
-Downloads a generated plan as an iCalendar `.ics` file.
+Downloads a generated plan as an iCalendar `.ics` file. Only the user who created the plan can download it; any other plan id returns `404`.
 
 Response:
 
@@ -835,13 +835,13 @@ Content-Disposition: attachment; filename="study-plan-<plan_id>.ics"
 
 ### POST `/api/study/quiz`
 
-Generates multiple-choice questions from an indexed document.
+Generates multiple-choice questions from one of the authenticated user's indexed documents. Returns `404` if the user has no such document, including when another user does.
 
 Request:
 
 ```json
 {
-  "document_id": "machine-learning.pdf",
+  "document_id": "3f6c1a52-8d0e-4c7b-9a21-5e4f0b7d1c88",
   "num_questions": 5
 }
 ```
@@ -884,12 +884,12 @@ Request:
 {
   "attempts": [
     {
-      "document_id": "machine-learning.pdf",
+      "document_id": "3f6c1a52-8d0e-4c7b-9a21-5e4f0b7d1c88",
       "concept_tag": "Machine Learning",
       "correct": true
     },
     {
-      "document_id": "machine-learning.pdf",
+      "document_id": "3f6c1a52-8d0e-4c7b-9a21-5e4f0b7d1c88",
       "concept_tag": "Python",
       "correct": false
     }
@@ -907,7 +907,7 @@ Success:
     {
       "attempt_id": 1,
       "student_id": "3594f828-14fd-4eaa-b29d-4b66591178a8",
-      "document_id": "machine-learning.pdf",
+      "document_id": "3f6c1a52-8d0e-4c7b-9a21-5e4f0b7d1c88",
       "concept_tag": "Machine Learning",
       "correct": true,
       "accuracy": 1.0
@@ -917,7 +917,7 @@ Success:
 }
 ```
 
-Invalid items are isolated into `errors` instead of failing the whole batch.
+Invalid items are isolated into `errors` instead of failing the whole batch. An attempt whose `document_id` is not one of the user's own indexed documents is reported as `Document not found` in `errors`.
 
 ### GET `/api/study/weak-topics`
 

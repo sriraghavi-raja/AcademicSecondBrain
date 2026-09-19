@@ -9,6 +9,7 @@ from typing import Any
 from ics import Calendar, Event
 
 from src.rag.ingestion.metadata import FILE_KEY, OWNER_KEY
+from src.rag.registry import documents as document_registry
 from src.rag.registry.skills import upsert_skill, upsert_skill_evidence
 from src.rag.registry.study import (
     insert_quiz_attempt,
@@ -114,6 +115,9 @@ async def generate_quiz(index: Any, llm: Any, owner_id: str, document_id: str, n
 
 
 def record_attempt(student_id: str, document_id: str, concept_tag: str, correct: bool) -> dict[str, Any]:
+    document = document_registry.get_document(student_id, document_id)
+    if document is None or document["status"] != "ready":
+        raise ValueError("Document not found")
     canonical_tag, skill_type = _canonicalize_concept_tag(concept_tag)
     upsert_skill(student_id, canonical_tag, skill_type)
     attempt_id = insert_quiz_attempt(student_id, document_id, canonical_tag, correct)
@@ -174,12 +178,12 @@ async def parse_syllabus(index: Any, llm: Any, owner_id: str, document_id: str) 
             "date_or_week": topic.get("date_or_week"),
             "weight": topic.get("weight"),
         })
-    replace_syllabus_topics(document_id, cleaned)
+    replace_syllabus_topics(owner_id, document_id, cleaned)
     return {"syllabus_id": document_id, "topics": cleaned}
 
 
 def build_study_plan(student_id: str, syllabus_id: str, weak_topics: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    topics = select_syllabus_topics(syllabus_id)
+    topics = select_syllabus_topics(student_id, syllabus_id)
     if not topics:
         raise ValueError(f"No parsed syllabus found for: {syllabus_id}")
     weak_names = {topic["concept_tag"].casefold() for topic in (weak_topics or get_weak_topics(student_id))}
@@ -202,9 +206,9 @@ def build_study_plan(student_id: str, syllabus_id: str, weak_topics: list[dict[s
     return plan
 
 
-def export_study_plan(plan_id: str) -> str:
+def export_study_plan(student_id: str, plan_id: str) -> str:
     stored = select_study_plan(plan_id)
-    if not stored:
+    if not stored or stored["student_id"] != student_id:
         raise ValueError(f"Study plan not found: {plan_id}")
     plan = json.loads(stored["plan_json"])
     calendar = Calendar()

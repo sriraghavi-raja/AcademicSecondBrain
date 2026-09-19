@@ -29,14 +29,14 @@ class Phase67Tests(IsolatedDatabaseTestCase):
             asyncio.run(parse_syllabus(index, FakeLLM(payload), "someone-else", "syllabus-id"))
 
     def test_weak_topics_receive_more_sessions_and_ics_exports(self):
-        study_registry.replace_syllabus_topics("syllabus", [
+        study_registry.replace_syllabus_topics("student", "syllabus", [
             {"topic": "Python", "date_or_week": "Week 1", "weight": 1},
             {"topic": "SQL", "date_or_week": "Week 2", "weight": 1},
         ])
         plan = build_study_plan("student", "syllabus", [{"concept_tag": "Python", "accuracy": 0.2}])
         self.assertEqual(sum(session["topic"] == "Python" for session in plan["sessions"]), 2)
         self.assertEqual(sum(session["topic"] == "SQL" for session in plan["sessions"]), 1)
-        ics_text = export_study_plan(plan["plan_id"])
+        ics_text = export_study_plan("student", plan["plan_id"])
         self.assertIn("BEGIN:VCALENDAR", ics_text)
         self.assertIn("Study: Python", ics_text)
 

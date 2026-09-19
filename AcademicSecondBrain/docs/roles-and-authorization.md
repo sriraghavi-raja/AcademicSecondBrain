@@ -101,7 +101,9 @@ Documents are owned through an `owner_id` stamped on every indexed node at uploa
 
 Each upload gets a server-generated `document_id` recorded with its owner in the `documents` table, and files are stored under `uploads/<user_id>/<document_id>/` with a fixed name, so two users can upload the same filename without touching each other. Quiz generation and syllabus parsing only read the caller's own document.
 
-Not yet isolated: study-plan export and the parsed syllabus topics are looked up by id without checking the owner, and quiz attempts are not checked against a document. Do not describe the study endpoints as strict per-student isolation until they are scoped too.
+The study endpoints are owner-scoped too: quizzes and study plans only accept the caller's own documents (`404` otherwise), parsed syllabus topics are stored per student, a study plan can only be exported by the user who created it, and quiz attempts are only accepted for the caller's own indexed documents.
+
+Still open: deleting a user does not yet remove their documents, sessions, and career records.
 
 ## 4. Student permissions
 
@@ -364,7 +366,7 @@ When an endpoint returns `403`:
 
 - Never trust a role sent by the frontend without backend validation.
 - Never use a URL `student_id` to decide ownership.
-- Treat authenticated-only access as different from strict per-user ownership: study-plan export and parsed syllabus topics are not yet owner-scoped.
+- Deleting a user account does not yet remove that user's stored data; treat orphaned data as a known gap until it does.
 - Never expose password hashes or refresh-token hashes in API responses.
 - Never expose `ADMIN_SIGNUP_KEY` to the browser.
 - Do not put access tokens or refresh tokens in URLs.

@@ -1,6 +1,4 @@
 import asyncio
-import os
-import tempfile
 import unittest
 from types import SimpleNamespace
 
@@ -9,9 +7,10 @@ from fastapi.testclient import TestClient
 
 from src.api.auth import get_current_user
 from src.api.study import router
-from src.rag.registry import database, skills as skill_registry, study as study_registry
+from src.rag.registry import documents as document_registry
 from src.services.study_service import _parse_quiz_item, generate_quiz, get_weak_topics, record_attempt
 from src.services.skill_service import get_skill_graph
+from tests.support import IsolatedDatabaseTestCase
 
 
 class FakeLLM:
@@ -22,18 +21,11 @@ class FakeLLM:
         return SimpleNamespace(text=next(self.outputs))
 
 
-class StudyTests(unittest.TestCase):
+class StudyTests(IsolatedDatabaseTestCase):
     def setUp(self):
-        self.database = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        self.database.close()
-        self.original_db_path = database.DB_PATH
-        database.DB_PATH = self.database.name
-        skill_registry.init_db()
-        study_registry.init_db()
-
-    def tearDown(self):
-        database.DB_PATH = self.original_db_path
-        os.unlink(self.database.name)
+        super().setUp()
+        document_registry.create_document("paper-id", "student-1", "paper.pdf", "stored", "hash-paper", 10)
+        document_registry.mark_ready("paper-id", 3)
 
     def test_quiz_fixture_generation_and_validation(self):
         item = '{"question":"What is Python?","options":["Language","Database","OS","Protocol"],"correct_option":0,"explanation":"Python is a language.","concept_tag":"python"}'
@@ -81,20 +73,20 @@ class StudyTests(unittest.TestCase):
             _parse_quiz_item(invalid)
 
     def test_attempt_accuracy_and_weak_topic(self):
-        record_attempt("student-1", "paper.pdf", "python", False)
-        record_attempt("student-1", "paper.pdf", "python", True)
-        record_attempt("student-1", "paper.pdf", "python", False)
+        record_attempt("student-1", "paper-id", "python", False)
+        record_attempt("student-1", "paper-id", "python", True)
+        record_attempt("student-1", "paper-id", "python", False)
         result = get_weak_topics("student-1", threshold=0.7)
         self.assertEqual(result[0]["concept_tag"], "Python")
         self.assertEqual(result[0]["accuracy"], 1 / 3)
 
     def test_generated_specific_tag_is_stored_as_fallback_topic(self):
-        result = record_attempt("student-1", "paper.pdf", "Machine Learning Challenges", False)
+        result = record_attempt("student-1", "paper-id", "Machine Learning Challenges", False)
         self.assertEqual(result["concept_tag"], "Machine Learning Challenges")
         self.assertEqual(get_weak_topics("student-1")[0]["concept_tag"], "Machine Learning Challenges")
 
     def test_quiz_attempt_appears_in_skill_graph(self):
-        record_attempt("student-1", "paper.pdf", "Algorithms", False)
+        record_attempt("student-1", "paper-id", "Algorithms", False)
         graph = get_skill_graph("student-1")
 
         self.assertEqual(graph["skills"][0]["skill_name"], "Algorithms")
@@ -110,7 +102,7 @@ class StudyTests(unittest.TestCase):
             response = client.post(
                 "/api/study/quiz/submit",
                 json={"attempts": [{
-                    "document_id": "paper.pdf",
+                    "document_id": "paper-id",
                     "concept_tag": " ",
                     "correct": False,
                 }]},
@@ -128,12 +120,12 @@ class StudyTests(unittest.TestCase):
                 "/api/study/quiz/submit",
                 json={"attempts": [
                     {
-                        "document_id": "paper.pdf",
+                        "document_id": "paper-id",
                         "concept_tag": "python",
                         "correct": True,
                     },
                     {
-                        "document_id": "paper.pdf",
+                        "document_id": "paper-id",
                         "concept_tag": " ",
                         "correct": False,
                     },
