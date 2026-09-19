@@ -9,6 +9,7 @@ async def handle_stateless_chat(
         message: str,
         retriever: Any,
         llm: Any,
+        user_id: str,
         session_id: Optional[str] = None,
         node_postprocessors: Optional[list] = None
 ) -> Dict[str, Any]:
@@ -21,7 +22,7 @@ async def handle_stateless_chat(
     """
 
     # 1. Load Session
-    active_session_id, memory = get_or_create_session(session_id)
+    active_session_id, memory = get_or_create_session(user_id, session_id)
 
     # 2. Build Engine Fresh
     chat_engine = CondensePlusContextChatEngine.from_defaults(
@@ -42,7 +43,7 @@ async def handle_stateless_chat(
     formatted_result = format_response_with_sources(raw_response)
 
     # 4. Save state back to SQLite
-    save_session(active_session_id, memory)
+    save_session(user_id, active_session_id, memory)
 
     return {
         "session_id": active_session_id,
@@ -53,6 +54,7 @@ async def handle_streaming_chat(
     message: str,
     retriever: Any,
     llm: Any,
+    user_id: str,
     session_id: Optional[str] = None,
     node_postprocessors: Optional[list] = None
 ) -> AsyncGenerator[str, None]:
@@ -64,7 +66,7 @@ async def handle_streaming_chat(
     4. Persists updated session state to SQLite.
     """
     # 1. Retrieve or create session
-    active_session_id, memory = get_or_create_session(session_id)
+    active_session_id, memory = get_or_create_session(user_id, session_id)
 
     # 2. Instantiate Chat Engine
     chat_engine = CondensePlusContextChatEngine.from_defaults(
@@ -105,7 +107,7 @@ async def handle_streaming_chat(
     yield f"data: {json.dumps({'type': 'sources', 'sources': sources_payload})}\n\n"
 
     # 5. Persist updated chat history buffer to SQLite
-    save_session(active_session_id, memory)
+    save_session(user_id, active_session_id, memory)
 
     # Signal completion
     yield "data: [DONE]\n\n"

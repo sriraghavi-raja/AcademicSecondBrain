@@ -320,7 +320,7 @@ Fields:
 | Field | Required | Description |
 |---|---:|---|
 | `question` | Yes | User's question |
-| `session_id` | No | Existing chat session. Omit or use `null` to create one |
+| `session_id` | No | One of your own chat sessions. Omit or use `null` to create one. An id that does not exist or belongs to another user returns `404` before any streaming starts |
 | `document_id` | No | Restrict retrieval to one uploaded document when supported |
 
 Response headers include:
@@ -359,7 +359,7 @@ Frontend recommendation: use `fetch()` and read `response.body.getReader()`. `Ev
 
 ### GET `/api/chat/sessions`
 
-Returns sessions for the chat sidebar.
+Returns the authenticated user's chat sessions for the sidebar. Other users' sessions and mock-interview sessions never appear here.
 
 Example response:
 
@@ -375,7 +375,7 @@ Example response:
 
 ### GET `/api/chat/history/{session_id}`
 
-Returns messages for one chat session.
+Returns messages for one of the authenticated user's chat sessions. A session that does not exist or belongs to another user returns `404` (the two cases are indistinguishable on purpose), and reading an unknown id no longer creates a session.
 
 Example response:
 
@@ -398,7 +398,7 @@ Example response:
 
 ### DELETE `/api/chat/session/{session_id}`
 
-Deletes a chat session.
+Deletes one of the authenticated user's chat sessions. Returns `404` if it does not exist or belongs to another user.
 
 Success:
 
@@ -752,7 +752,7 @@ Request:
 }
 ```
 
-The response contains the next interview state/question.
+The response contains the next interview state/question. Returns `404` if the session does not exist, is not an interview session, or belongs to another user.
 
 ### POST `/api/career/interview/end`
 
@@ -766,7 +766,7 @@ Request:
 }
 ```
 
-The response contains the stored/end state for that interview.
+The response contains the stored/end state for that interview. Returns `404` if the session does not exist, is not an interview session, or belongs to another user.
 
 ## 10. Study system
 

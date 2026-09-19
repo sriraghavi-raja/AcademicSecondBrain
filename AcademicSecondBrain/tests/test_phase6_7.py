@@ -1,14 +1,13 @@
 import asyncio
 import json
-import os
-import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from src.services.interview_service import continue_interview, end_interview, start_interview
 from src.services.study_service import build_study_plan, export_study_plan, parse_syllabus
-from src.rag.registry import database, study as study_registry
+from src.rag.registry import study as study_registry
+from tests.support import IsolatedDatabaseTestCase
 
 
 class FakeLLM:
@@ -19,18 +18,7 @@ class FakeLLM:
         return SimpleNamespace(text=next(self.outputs))
 
 
-class Phase67Tests(unittest.TestCase):
-    def setUp(self):
-        self.database = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        self.database.close()
-        self.old_path = database.DB_PATH
-        database.DB_PATH = self.database.name
-        study_registry.init_db()
-
-    def tearDown(self):
-        database.DB_PATH = self.old_path
-        os.unlink(self.database.name)
-
+class Phase67Tests(IsolatedDatabaseTestCase):
     def test_parse_syllabus_fixture_formats(self):
         nodes = [SimpleNamespace(metadata={"file_name": "syllabus.pdf"}, child_nodes=[], get_content=lambda: "Week 1: Python\nWeek 2: SQL")]
         index = SimpleNamespace(docstore=SimpleNamespace(docs={"1": nodes[0]}))
@@ -54,8 +42,8 @@ class Phase67Tests(unittest.TestCase):
         with patch("src.services.interview_service.get_skill_graph", return_value={"skills": []}), \
              patch("src.services.interview_service.get_weak_topics", return_value=[]):
             start = asyncio.run(start_interview("student", "Python Developer", "technical", FakeLLM("What is Python?")))
-        continued = asyncio.run(continue_interview(start["session_id"], "A programming language.", FakeLLM("Explain its typing.")))
-        ended = end_interview(continued["session_id"])
+        continued = asyncio.run(continue_interview("student", start["session_id"], "A programming language.", FakeLLM("Explain its typing.")))
+        ended = end_interview("student", continued["session_id"])
         self.assertEqual(start["session_id"], continued["session_id"])
         self.assertEqual(len(ended["messages"]), 3)
 
