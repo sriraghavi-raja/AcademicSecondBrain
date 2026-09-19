@@ -103,7 +103,7 @@ Each upload gets a server-generated `document_id` recorded with its owner in the
 
 The study endpoints are owner-scoped too: quizzes and study plans only accept the caller's own documents (`404` otherwise), parsed syllabus topics are stored per student, a study plan can only be exported by the user who created it, and quiz attempts are only accepted for the caller's own indexed documents.
 
-Still open: deleting a user does not yet remove their documents, sessions, and career records.
+Deleting a user removes all of their data (documents and index entries, stored files, sessions, skills, study and career records, generated resumes, and refresh tokens). The data is removed first and the account last, so a failed deletion can be repeated.
 
 ## 4. Student permissions
 
@@ -139,7 +139,7 @@ Admin endpoints:
 | `GET` | `/api/admin/users` | List users |
 | `GET` | `/api/admin/users/{user_id}` | View one user's account details |
 | `PATCH` | `/api/admin/users/{user_id}/role` | Change a user's role |
-| `DELETE` | `/api/admin/users/{user_id}` | Delete another user's account |
+| `DELETE` | `/api/admin/users/{user_id}` | Delete another user's account and all of their data |
 
 Admin endpoints require:
 
@@ -366,7 +366,7 @@ When an endpoint returns `403`:
 
 - Never trust a role sent by the frontend without backend validation.
 - Never use a URL `student_id` to decide ownership.
-- Deleting a user account does not yet remove that user's stored data; treat orphaned data as a known gap until it does.
+- Any new table that stores per-user data must be added to `user_data.OWNED_TABLES`; a test fails if one is forgotten, so account deletion cannot silently leave data behind.
 - Never expose password hashes or refresh-token hashes in API responses.
 - Never expose `ADMIN_SIGNUP_KEY` to the browser.
 - Do not put access tokens or refresh tokens in URLs.

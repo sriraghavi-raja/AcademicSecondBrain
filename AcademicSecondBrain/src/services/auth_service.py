@@ -184,6 +184,8 @@ class AuthService:
 
     def delete_user(self, user_id: str) -> None:
         with auth_registry.get_db_connection() as connection:
+            # SQLite does not enforce the ON DELETE CASCADE on refresh_sessions unless foreign keys are switched on
+            connection.execute("DELETE FROM refresh_sessions WHERE user_id = ?", (user_id,))
             cursor = connection.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
             connection.commit()
         if cursor.rowcount == 0:

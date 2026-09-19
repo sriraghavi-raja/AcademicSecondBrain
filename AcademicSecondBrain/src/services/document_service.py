@@ -10,7 +10,7 @@ from typing import Any, BinaryIO, Optional
 
 from fastapi import HTTPException
 
-from src.rag.ingestion.ingester import ingest_new_documents, remove_file_nodes
+from src.rag.ingestion.ingester import ingest_new_documents, remove_file_nodes, remove_owner_nodes
 from src.rag.registry import documents as document_registry
 from src.rag.registry.documents import DuplicateDocumentError
 
@@ -127,6 +127,20 @@ class DocumentService:
 
         return {"message": f"Document {record['filename']} deleted"}
 
+    def delete_all_for_owner(self, owner_id: str) -> int:
+        """
+        Removes everything one user uploaded: every indexed node (including ones no record points to any
+        more), every stored file, and every document record. Safe to repeat. Returns the nodes removed.
+        """
+        if not self.index or not self.retriever_factory:
+            raise HTTPException(status_code=503, detail="RAG system is not initialized.")
+
+        removed = remove_owner_nodes(self.index, owner_id, persist_dir=self.persist_dir)
+        shutil.rmtree(self._owner_directory(owner_id), ignore_errors=True)
+        document_registry.delete_all_for_owner(owner_id)
+        self.retriever_factory.invalidate(owner_id)
+        return removed
+
     def recover_interrupted_uploads(self) -> int:
         """
         Removes uploads that were still processing when the server stopped: their nodes, their files
@@ -141,11 +155,15 @@ class DocumentService:
             self.retriever_factory.invalidate(owner_id)
         return len(interrupted)
 
+    def _owner_directory(self, owner_id: str) -> Path:
+        if not SAFE_PATH_COMPONENT.fullmatch(owner_id):
+            raise ValueError("Unsafe identifier for a storage path")
+        return Path(self.upload_dir) / owner_id
+
     def _file_directory(self, owner_id: str, file_id: str) -> Path:
-        for component in (owner_id, file_id):
-            if not SAFE_PATH_COMPONENT.fullmatch(component):
-                raise ValueError("Unsafe identifier for a storage path")
-        return Path(self.upload_dir) / owner_id / file_id
+        if not SAFE_PATH_COMPONENT.fullmatch(file_id):
+            raise ValueError("Unsafe identifier for a storage path")
+        return self._owner_directory(owner_id) / file_id
 
     def _save_upload(self, file_bytes: BinaryIO, path: Path) -> tuple[str, int]:
         digest = hashlib.sha256()

@@ -111,4 +111,11 @@ def delete_document(owner_id: str, file_id: str) -> bool:
     return cursor.rowcount > 0
 
 
+def delete_all_for_owner(owner_id: str) -> int:
+    with get_db_connection() as conn:
+        cursor = conn.execute("DELETE FROM documents WHERE owner_id = ?", (owner_id,))
+        conn.commit()
+    return cursor.rowcount
+
+
 init_db()

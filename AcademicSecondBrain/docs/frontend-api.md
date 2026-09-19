@@ -297,7 +297,11 @@ Allowed role values are `student` and `admin`. An admin cannot remove their own 
 
 ### DELETE `/api/admin/users/{user_id}`
 
-Deletes a user account and its refresh sessions. An admin cannot delete their own account.
+Deletes a user account **and everything the user owns**: indexed documents (vectors, indexed text, stored files), chat and interview sessions, skills and evidence, achievements, quiz attempts, study plans and syllabus topics, profile, projects, career runs, generated resumes, and refresh tokens. This cannot be undone.
+
+The user's access token stops working immediately (`401`). The cleanup runs before the account row is removed, so if it fails the account still exists and the same request can be repeated safely.
+
+Returns `204` on success, `404` if the user does not exist, and `400` if an admin tries to delete their own account.
 
 ## 6. Chat and chat sessions
 

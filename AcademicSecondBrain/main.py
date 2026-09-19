@@ -13,6 +13,7 @@ from src.rag.retrieval.retreiver import RetrieverFactory, build_postprocessors
 from src.api import chat_router, sessions_router, documents_router, skills_router, github_router, study_router, career_router, profile_router, dashboard_router, auth_router, admin_router
 from src.api.auth import get_current_user
 from src.rag.registry import auth as auth_registry
+from src.services.account_service import AccountService
 from src.services.auth_service import AuthService
 from src.rag.registry import skills
 from src.rag.registry import study
@@ -70,6 +71,7 @@ async def lifespan(app: FastAPI):
         upload_dir=os.getenv("UPLOAD_DIR", "uploads"),
         persist_dir=PERSIST_DIR,
     )
+    app.state.account_service = AccountService(app.state.auth_service, app.state.document_service)
     recovered = app.state.document_service.recover_interrupted_uploads()
     if recovered:
         print(f"\nCleaned up {recovered} upload(s) that were interrupted by the last shutdown.")

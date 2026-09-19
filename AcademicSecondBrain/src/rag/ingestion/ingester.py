@@ -11,17 +11,19 @@ from src.rag.ingestion.ingestion import run_ingestion
 ingest_lock = threading.Lock()
 
 
-def _purge_file_nodes(index: VectorStoreIndex, owner_id: str, file_id: str) -> int:
+def _purge_nodes(index: VectorStoreIndex, owner_id: str, file_id: str = None) -> int:
     """
-    Removes every node of one upload from Chroma and the docstore. Caller must hold ingest_lock.
+    Removes nodes from Chroma and the docstore: one upload's nodes, or all of owner_id's nodes when file_id
+    is None. Caller must hold ingest_lock.
 
-    Nodes are found by owner and file id and removed one by one, so nothing that belongs to another
+    Nodes are found by owner (and file id) and removed one by one, so nothing that belongs to another
     upload or another user can be swept up.
     """
     nodes = {
         node_id: node
         for node_id, node in list(index.docstore.docs.items())
-        if node.metadata.get(OWNER_KEY) == owner_id and node.metadata.get(FILE_KEY) == file_id
+        if node.metadata.get(OWNER_KEY) == owner_id
+        and (file_id is None or node.metadata.get(FILE_KEY) == file_id)
     }
 
     # Purge vector embeddings first (only leaf nodes are embedded). If this fails nothing else has changed.
@@ -67,7 +69,7 @@ def ingest_new_documents(
             # 4. Save to disk so it survives a server restart
             index.storage_context.persist(persist_dir=persist_dir)
         except Exception:
-            _purge_file_nodes(index, owner_id, file_id)
+            _purge_nodes(index, owner_id, file_id)
             try:
                 index.storage_context.persist(persist_dir=persist_dir)
             except Exception:
@@ -93,6 +95,24 @@ def remove_file_nodes(
         persist_dir = os.getenv("PERSIST_DIR", "./storage")
 
     with ingest_lock:
-        removed = _purge_file_nodes(index, owner_id, file_id)
+        removed = _purge_nodes(index, owner_id, file_id)
+        index.storage_context.persist(persist_dir=persist_dir)
+        return removed
+
+
+def remove_owner_nodes(
+        index: VectorStoreIndex,
+        owner_id: str,
+        persist_dir: str = None
+) -> int:
+    """
+    Erases everything owner_id has in ChromaDB and the local docstore, including nodes that no document
+    record points to any more. Returns the nodes removed. Safe to repeat.
+    """
+    if persist_dir is None:
+        persist_dir = os.getenv("PERSIST_DIR", "./storage")
+
+    with ingest_lock:
+        removed = _purge_nodes(index, owner_id)
         index.storage_context.persist(persist_dir=persist_dir)
         return removed

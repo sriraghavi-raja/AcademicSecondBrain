@@ -1,14 +1,19 @@
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from src.api.auth import require_admin
+from src.services.account_service import AccountService
 from src.services.auth_service import AuthError, AuthService
 from src.api.auth import get_auth_service
 
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
+
+
+def get_account_service(request: Request) -> AccountService:
+    return request.app.state.account_service
 
 
 class RoleUpdateRequest(BaseModel):
@@ -54,11 +59,12 @@ def update_user_role(
 def delete_user(
     user_id: str,
     current_admin: Annotated[dict, Depends(require_admin)],
-    service: Annotated[AuthService, Depends(get_auth_service)],
+    accounts: Annotated[AccountService, Depends(get_account_service)],
 ):
+    """Deletes the account and everything the user owns: documents, chats, skills, study and career records."""
     if current_admin["user_id"] == user_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="An admin cannot delete their own account")
     try:
-        service.delete_user(user_id)
+        accounts.delete_user(user_id)
     except AuthError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
