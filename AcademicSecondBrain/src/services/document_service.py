@@ -2,7 +2,7 @@
 
 import os
 import shutil
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Optional
 
 from fastapi import HTTPException
 
@@ -11,16 +11,17 @@ from src.rag.registry.documents import list_documents
 
 
 class DocumentService:
-    def __init__(self, index: Any, retriever: Any, upload_dir: str = "uploads"):
+    def __init__(self, index: Any, retriever_factory: Any, upload_dir: str = "uploads", persist_dir: Optional[str] = None):
         self.index = index
-        self.retriever = retriever
+        self.retriever_factory = retriever_factory
         self.upload_dir = upload_dir
+        self.persist_dir = persist_dir
 
-    def list_documents(self) -> list[dict[str, Any]]:
+    def list_documents(self, owner_id: str) -> list[dict[str, Any]]:
         if not self.index:
             raise HTTPException(status_code=503, detail="Vector index is not initialized.")
 
-        raw_documents = list_documents(self.index)
+        raw_documents = list_documents(self.index, owner_id)
         return [
             {
                 "document_id": document.get("file_name", "unknown"),
@@ -32,14 +33,14 @@ class DocumentService:
             for document in raw_documents
         ]
 
-    def get_document(self, document_id: str) -> dict[str, Any]:
-        for document in self.list_documents():
+    def get_document(self, owner_id: str, document_id: str) -> dict[str, Any]:
+        for document in self.list_documents(owner_id):
             if document["document_id"] == document_id:
                 return document
         raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
 
-    def ingest_document(self, file_bytes: BinaryIO, filename: str) -> dict[str, Any]:
-        if not self.index or not self.retriever:
+    def ingest_document(self, owner_id: str, file_bytes: BinaryIO, filename: str) -> dict[str, Any]:
+        if not self.index or not self.retriever_factory:
             raise HTTPException(status_code=503, detail="RAG system is not initialized.")
 
         os.makedirs(self.upload_dir, exist_ok=True)
@@ -47,9 +48,8 @@ class DocumentService:
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file_bytes, buffer)
 
-        result = ingest_new_documents([file_path], self.index)
-        if result.get("bm25_retriever"):
-            self.retriever.update_bm25(result["bm25_retriever"])
+        result = ingest_new_documents([file_path], self.index, owner_id, persist_dir=self.persist_dir)
+        self.retriever_factory.invalidate(owner_id)
 
         return {
             "message": "Document ingested successfully",
@@ -61,16 +61,18 @@ class DocumentService:
             },
         }
 
-    def delete_document(self, document_id: str) -> dict[str, str]:
-        if not self.index or not self.retriever:
+    def delete_document(self, owner_id: str, document_id: str) -> dict[str, str]:
+        if not self.index or not self.retriever_factory:
             raise HTTPException(status_code=503, detail="RAG system is not initialized.")
 
         result = delete_document(
             file_name=document_id,
             index=self.index,
-            retriever_wrapper=self.retriever,
+            owner_id=owner_id,
+            persist_dir=self.persist_dir,
         )
         if result.get("status") == "error":
             raise HTTPException(status_code=404, detail=result.get("message"))
+        self.retriever_factory.invalidate(owner_id)
 
         return {"message": f"Document {document_id} deleted"}

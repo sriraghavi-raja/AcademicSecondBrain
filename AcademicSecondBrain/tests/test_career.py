@@ -66,7 +66,7 @@ class CareerTests(IsolatedDatabaseTestCase):
              patch("src.services.career_service.get_projects", return_value=[project]), \
              patch("src.services.career_service.get_achievements", return_value=[]):
             with tempfile.TemporaryDirectory() as output_dir:
-                result = asyncio.run(generate_resume("student-1", object(), llm, "Python Developer", output_dir))
+                result = asyncio.run(generate_resume("student-1", llm, "Python Developer", output_dir))
                 self.assertTrue(os.path.exists(result["file_path"]))
                 self.assertEqual(len(result["data"]["projects"][0]["bullets"]), 1)
                 self.assertIn("Python Developer", llm.prompts[0])

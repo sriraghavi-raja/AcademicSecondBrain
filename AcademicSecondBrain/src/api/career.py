@@ -192,7 +192,6 @@ async def create_resume(
     try:
         result = await generate_resume(
             current_user["user_id"],
-            request.app.state.retriever,
             request.app.state.llm,
             data.target_role,
         )

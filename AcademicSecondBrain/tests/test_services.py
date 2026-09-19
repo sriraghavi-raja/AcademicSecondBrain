@@ -1,4 +1,5 @@
 import io
+import os
 import unittest
 from unittest.mock import Mock, patch
 
@@ -13,12 +14,15 @@ class RagServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_ask_delegates_without_changing_arguments(self, handle_chat, session_exists):
         expected_events = ["data: {\"type\":\"session\"}\n\n"]
         handle_chat.return_value = expected_events
-        service = RagService("retriever", "llm", ["postprocessor"])
+        retriever_factory = Mock()
+        retriever_factory.for_user.return_value = "retriever"
+        service = RagService(retriever_factory, "llm", ["postprocessor"])
 
         events = service.ask("user-1", "question", "session", "document")
 
         self.assertIs(events, expected_events)
         session_exists.assert_called_once_with("user-1", "session")
+        retriever_factory.for_user.assert_called_once_with("user-1")
         handle_chat.assert_called_once_with(
             message="question",
             retriever="retriever",
@@ -32,8 +36,8 @@ class RagServiceTests(unittest.IsolatedAsyncioTestCase):
 class DocumentServiceTests(unittest.TestCase):
     def setUp(self):
         self.index = Mock()
-        self.retriever = Mock()
-        self.service = DocumentService(self.index, self.retriever, "uploads")
+        self.retriever_factory = Mock()
+        self.service = DocumentService(self.index, self.retriever_factory, "uploads", persist_dir="persist")
 
     @patch("src.services.document_service.list_documents")
     def test_list_documents_preserves_api_mapping(self, list_documents):
@@ -42,7 +46,7 @@ class DocumentServiceTests(unittest.TestCase):
         ]
 
         self.assertEqual(
-            self.service.list_documents(),
+            self.service.list_documents("user-1"),
             [
                 {
                     "document_id": "paper.pdf",
@@ -54,34 +58,39 @@ class DocumentServiceTests(unittest.TestCase):
             ],
         )
 
+    @patch("src.services.document_service.os.makedirs")
     @patch("src.services.document_service.ingest_new_documents")
-    def test_ingest_updates_bm25_and_returns_existing_response(self, ingest):
+    def test_ingest_scopes_to_the_owner_and_returns_existing_response(self, ingest, makedirs):
         ingest.return_value = {
             "added_total_nodes": 3,
             "added_leaf_nodes": 2,
-            "bm25_retriever": "new-bm25",
         }
 
         with patch("builtins.open", unittest.mock.mock_open()) as open_file:
-            result = self.service.ingest_document(io.BytesIO(b"data"), "paper.pdf")
+            result = self.service.ingest_document("user-1", io.BytesIO(b"data"), "paper.pdf")
 
-        self.retriever.update_bm25.assert_called_once_with("new-bm25")
+        ingest.assert_called_once_with(
+            [os.path.join("uploads", "paper.pdf")], self.index, "user-1", persist_dir="persist"
+        )
+        self.retriever_factory.invalidate.assert_called_once_with("user-1")
         self.assertEqual(result["message"], "Document ingested successfully")
         self.assertEqual(result["document_id"], "paper.pdf")
         self.assertEqual(result["metadata"]["added_total_nodes"], 3)
         open_file.assert_called_once()
 
     @patch("src.services.document_service.delete_document")
-    def test_delete_preserves_response_and_retriever_argument(self, delete):
+    def test_delete_scopes_to_the_owner_and_refreshes_retrieval(self, delete):
         delete.return_value = {"status": "success"}
 
-        result = self.service.delete_document("paper.pdf")
+        result = self.service.delete_document("user-1", "paper.pdf")
 
         delete.assert_called_once_with(
             file_name="paper.pdf",
             index=self.index,
-            retriever_wrapper=self.retriever,
+            owner_id="user-1",
+            persist_dir="persist",
         )
+        self.retriever_factory.invalidate.assert_called_once_with("user-1")
         self.assertEqual(result, {"message": "Document paper.pdf deleted"})
 
 

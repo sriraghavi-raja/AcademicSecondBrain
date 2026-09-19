@@ -412,7 +412,7 @@ Success:
 
 ### GET `/api/docs`
 
-Lists indexed documents.
+Lists the authenticated user's indexed documents. Other users' documents never appear.
 
 Example response:
 
@@ -430,7 +430,7 @@ Example response:
 
 ### POST `/api/docs/upload`
 
-Uploads and indexes a document.
+Uploads and indexes a document. The document is owned by the authenticated user and is only searchable in that user's chats.
 
 Request: `multipart/form-data`
 
@@ -471,7 +471,7 @@ Success:
 
 ### DELETE `/api/docs/{document_id}`
 
-Deletes an indexed document.
+Deletes one of the authenticated user's indexed documents. The name must match exactly. Returns `404` if the user has no such document, including when another user does.
 
 Success:
 

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
@@ -207,7 +207,7 @@ class SessionApiIsolationTests(IsolatedDatabaseTestCase):
         self.app.state.auth_service = self.auth
         self.app.state.session_service = SessionService()
         self.app.state.llm = FakeLLM()
-        self.app.state.rag_service = RagService(retriever=None, llm=None, postprocessors=None)
+        self.app.state.rag_service = RagService(retriever_factory=Mock(), llm=None, postprocessors=None)
         self.client = TestClient(self.app)
         self.alice_id, self.alice = self._signup("alice")
         self.bob_id, self.bob = self._signup("bob")

@@ -256,7 +256,7 @@ def render_resume_docx(data: dict[str, Any], output_path: str) -> None:
     document.save(output_path)
 
 
-async def generate_resume(student_id: str, retriever: Any, llm: Any, target_role: str | None = None, output_dir: str = "outputs") -> dict[str, Any]:
+async def generate_resume(student_id: str, llm: Any, target_role: str | None = None, output_dir: str = "outputs") -> dict[str, Any]:
     data = await build_resume_data(student_id, llm, target_role)
     os.makedirs(output_dir, exist_ok=True)
     output_path = Path(output_dir) / f"{student_id}_resume.docx"

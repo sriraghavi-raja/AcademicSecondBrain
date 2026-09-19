@@ -1,13 +1,18 @@
 from typing import List, Dict, Any
 from llama_index.core import VectorStoreIndex
 
+from src.rag.ingestion.metadata import OWNER_KEY
 
-def list_documents(index: VectorStoreIndex) -> List[Dict[str, Any]]:
-    """Returns a list of all active documents by safely bypassing VectorStore constraints and querying the docstore directly."""
+
+def list_documents(index: VectorStoreIndex, owner_id: str) -> List[Dict[str, Any]]:
+    """Returns the active documents owned by owner_id by safely bypassing VectorStore constraints and querying the docstore directly."""
     docs_map = {}
 
-    # Iterate over all raw nodes in our local document store
+    # Iterate over the owner's raw nodes in our local document store
     for node in index.docstore.docs.values():
+        if node.metadata.get(OWNER_KEY) != owner_id:
+            continue
+
         ref_doc_id = node.ref_doc_id
 
         if not ref_doc_id:
