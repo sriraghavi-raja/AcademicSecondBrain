@@ -1,19 +1,21 @@
 import unittest
 from unittest.mock import Mock, patch
 
+from src.rag.synthesis.document_scope import DocumentAccessError
 from src.services.rag_service import RagService
 from src.services.session_service import SessionService
+from tests.support import IsolatedDatabaseTestCase
 
 
 class RagServiceTests(unittest.IsolatedAsyncioTestCase):
     @patch("src.services.rag_service.session_exists", return_value=True)
     @patch("src.services.rag_service.handle_streaming_chat")
-    async def test_ask_delegates_without_changing_arguments(self, handle_chat, session_exists):
+    async def test_engine_mode_delegates_without_changing_arguments(self, handle_chat, session_exists):
         expected_events = ["data: {\"type\":\"session\"}\n\n"]
         handle_chat.return_value = expected_events
         retriever_factory = Mock()
         retriever_factory.for_user.return_value = "retriever"
-        service = RagService(retriever_factory, "llm", ["postprocessor"])
+        service = RagService(retriever_factory, "llm", ["postprocessor"], chat_mode="engine")
 
         events = service.ask("user-1", "question", "session", "document")
 
@@ -28,6 +30,51 @@ class RagServiceTests(unittest.IsolatedAsyncioTestCase):
             session_id="session",
             node_postprocessors=["postprocessor"],
         )
+
+    @patch("src.services.rag_service.session_exists", return_value=True)
+    def test_chat_mode_defaults_to_agent(self, session_exists):
+        self.assertEqual(RagService(Mock(), "llm", []).chat_mode, "agent")
+        self.assertEqual(RagService(Mock(), "llm", [], chat_mode="engine").chat_mode, "engine")
+
+    @patch("src.services.rag_service.validate_document_ids", return_value=None)
+    @patch("src.services.rag_service.session_exists", return_value=True)
+    @patch("src.services.rag_service.handle_agent_chat")
+    async def test_agent_mode_delegates_with_the_validated_document_scope(
+        self, handle_agent, session_exists, validate_ids
+    ):
+        expected_events = ["data: {\"type\":\"session\"}\n\n"]
+        handle_agent.return_value = expected_events
+        retriever_factory = Mock()
+        retriever_factory.for_user.return_value = "retriever"
+        service = RagService(retriever_factory, "llm", ["postprocessor"], chat_mode="agent")
+
+        events = service.ask("user-1", "question", "session", "doc-1")
+
+        self.assertIs(events, expected_events)
+        validate_ids.assert_called_once_with("user-1", ["doc-1"])
+        handle_agent.assert_called_once_with(
+            message="question",
+            retriever="retriever",
+            llm="llm",
+            user_id="user-1",
+            session_id="session",
+            allowed_document_ids=None,
+            node_postprocessors=["postprocessor"],
+        )
+
+
+
+class RagServiceDocumentScopeTests(IsolatedDatabaseTestCase):
+    """Uses the real document registry (via a temp database), not a mock, for this one check."""
+
+    @patch("src.services.rag_service.session_exists", return_value=True)
+    def test_agent_mode_rejects_a_document_the_caller_does_not_own_before_streaming_starts(
+        self, session_exists
+    ):
+        service = RagService(Mock(), "llm", [], chat_mode="agent")
+
+        with self.assertRaises(DocumentAccessError):
+            service.ask("user-1", "question", None, "someone-elses-document")
 
 
 class SessionServiceTests(unittest.TestCase):

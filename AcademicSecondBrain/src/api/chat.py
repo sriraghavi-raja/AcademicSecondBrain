@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 from src.api.auth import get_current_user
 from src.api.schemas import ChatRequest
 from src.rag.registry.sessions import SessionNotFoundError
+from src.rag.synthesis.document_scope import DocumentAccessError
 
 router = APIRouter(tags=["Chat"])
 
@@ -30,7 +31,7 @@ async def chat_stream_endpoint(
             session_id=request_data.session_id,
             document_id=request_data.document_id,
         )
-    except SessionNotFoundError as error:
+    except (SessionNotFoundError, DocumentAccessError) as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
     return StreamingResponse(

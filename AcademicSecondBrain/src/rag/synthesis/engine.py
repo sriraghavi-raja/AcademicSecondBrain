@@ -10,17 +10,27 @@ from dotenv import load_dotenv
 from src.rag.synthesis.prompts import get_academic_prompt
 load_dotenv()
 
+# openai/gpt-oss-20b on Groq has a 131K token context window and supports tool/function calling.
+# Both flags matter for agent-mode chat: without is_function_calling_model the agent workflow
+# refuses to run, and the previous unset context_window silently fell back to an OpenAI default (3900)
+# far below what this model actually supports.
+DEFAULT_CONTEXT_WINDOW = int(os.getenv("GROQ_CONTEXT_WINDOW", "131072"))
+
+
 def get_academic_llm(
         model_name: str = "openai/gpt-oss-20b",
-        api_key: Optional[str] = None
+        api_key: Optional[str] = None,
+        context_window: int = DEFAULT_CONTEXT_WINDOW,
 ) -> OpenAILike:
-    """Configures the LLM using LMStudio OpenAI-compatible endpoint."""
+    """Configures the LLM using Groq's OpenAI-compatible endpoint."""
     return OpenAILike(
         model=model_name,
         api_base="https://api.groq.com/openai/v1",
         api_key=api_key,
         temperature=0.2,
-        is_chat_model=True
+        is_chat_model=True,
+        is_function_calling_model=True,
+        context_window=context_window,
     )
 
 
