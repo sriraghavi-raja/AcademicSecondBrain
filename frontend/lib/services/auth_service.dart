@@ -14,16 +14,16 @@ class AuthController extends ChangeNotifier {
   bool get isAuthenticated => user != null && api.accessToken != null;
   bool get isAdmin => user?.role == 'admin';
 
-  Future<bool> login(String name, String password) async {
+  Future<bool> login(String email, String password) async {
     return _run(() async {
-      final result = await api.login(name.trim(), password);
+      final result = await api.login(email.trim(), password);
       user = result.user;
     });
   }
 
-  Future<bool> signup(Map<String, dynamic> fields, {String? adminKey}) async {
+  Future<bool> signup(Map<String, dynamic> fields) async {
     return _run(() async {
-      final result = await api.signup(fields, adminKey: adminKey);
+      final result = await api.signup(fields);
       user = result.user;
     });
   }

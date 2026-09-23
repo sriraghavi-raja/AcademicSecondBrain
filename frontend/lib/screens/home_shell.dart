@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
@@ -32,6 +33,11 @@ const _adminNav = [
   _NavEntry(
     'Admin console',
     Icons.admin_panel_settings_outlined,
+    adminOnly: true,
+  ),
+  _NavEntry(
+    'Students',
+    Icons.groups_outlined,
     adminOnly: true,
   ),
 ];
@@ -365,6 +371,8 @@ class _Page extends StatelessWidget {
         return SkillsPage(api: auth.api);
       case 'Admin console':
         return AdminOverviewPage(api: auth.api, currentUserId: auth.user!.id);
+      case 'Students':
+        return AdminStudentSearchPage(api: auth.api);
       default:
         return _ComingSoon(label: label);
     }
@@ -447,6 +455,14 @@ class _AdminOverviewPageState extends State<AdminOverviewPage> {
     }
   }
 
+  Future<void> _openCreateUserDialog() async {
+    final created = await showDialog<bool>(
+      context: context,
+      builder: (_) => _CreateUserDialog(api: widget.api),
+    );
+    if (created == true) await _loadUsers();
+  }
+
   Future<void> _deleteUser(Map<String, dynamic> user) async {
     final userId = '${user['user_id'] ?? user['id'] ?? ''}';
     if (userId == widget.currentUserId) return;
@@ -455,7 +471,9 @@ class _AdminOverviewPageState extends State<AdminOverviewPage> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Delete user?'),
         content: Text(
-          'Delete ${user['name'] ?? 'this user'} and their account?',
+          'This permanently deletes ${user['name'] ?? 'this user'}\'s account: '
+          'their login, uploaded documents, chat history, resume, connected '
+          'GitHub token, and all skill/career data. This cannot be undone.',
         ),
         actions: [
           TextButton(
@@ -505,6 +523,12 @@ class _AdminOverviewPageState extends State<AdminOverviewPage> {
                 ],
               ),
             ),
+            FilledButton.icon(
+              onPressed: _openCreateUserDialog,
+              icon: const Icon(Icons.person_add_alt_1_outlined),
+              label: const Text('Create user'),
+            ),
+            const SizedBox(width: 10),
             IconButton(
               tooltip: 'Refresh users',
               onPressed: loading ? null : _loadUsers,
@@ -587,6 +611,148 @@ class _AdminOverviewPageState extends State<AdminOverviewPage> {
       ],
     );
   }
+}
+
+class _CreateUserDialog extends StatefulWidget {
+  const _CreateUserDialog({required this.api});
+  final ApiService api;
+
+  @override
+  State<_CreateUserDialog> createState() => _CreateUserDialogState();
+}
+
+class _CreateUserDialogState extends State<_CreateUserDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final name = TextEditingController();
+  final email = TextEditingController();
+  final password = TextEditingController();
+  final collegeName = TextEditingController();
+  final collegeYear = TextEditingController();
+  String role = 'student';
+  bool saving = false;
+  String? error;
+
+  @override
+  void dispose() {
+    name.dispose();
+    email.dispose();
+    password.dispose();
+    collegeName.dispose();
+    collegeYear.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    setState(() {
+      saving = true;
+      error = null;
+    });
+    try {
+      await widget.api.createAdminUser({
+        'name': name.text.trim(),
+        'email': email.text.trim(),
+        'password': password.text,
+        'college_name': collegeName.text.trim(),
+        'college_year': collegeYear.text.trim(),
+        'role': role,
+      });
+      if (mounted) Navigator.pop(context, true);
+    } on ApiException catch (exception) {
+      if (mounted) setState(() => error = exception.message);
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Create user'),
+    content: SizedBox(
+      width: 420,
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (error != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            TextFormField(
+              controller: name,
+              decoration: const InputDecoration(labelText: 'Name'),
+              validator: (value) =>
+                  (value == null || value.trim().isEmpty) ? 'Enter a name' : null,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: email,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(labelText: 'Email'),
+              validator: (value) =>
+                  (value == null || !value.contains('@')) ? 'Enter a valid email' : null,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: password,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Temporary password'),
+              validator: (value) => (value == null || value.length < 8)
+                  ? 'At least 8 characters'
+                  : null,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: collegeName,
+                    decoration: const InputDecoration(labelText: 'College name'),
+                    validator: (value) =>
+                        (value == null || value.trim().isEmpty) ? 'Required' : null,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    controller: collegeYear,
+                    decoration: const InputDecoration(labelText: 'College year'),
+                    validator: (value) =>
+                        (value == null || value.trim().isEmpty) ? 'Required' : null,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(value: 'student', label: Text('Student'), icon: Icon(Icons.school_outlined)),
+                ButtonSegment(value: 'admin', label: Text('Admin'), icon: Icon(Icons.admin_panel_settings_outlined)),
+              ],
+              selected: {role},
+              onSelectionChanged: (selection) => setState(() => role = selection.first),
+            ),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: saving ? null : () => Navigator.pop(context, false),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: saving ? null : _submit,
+        child: Text(saving ? 'Creating…' : 'Create'),
+      ),
+    ],
+  );
 }
 
 class _AdminMetric extends StatelessWidget {
@@ -685,6 +851,248 @@ class _AdminUserTile extends StatelessWidget {
             onPressed: isCurrentUser ? null : () => onDelete(user),
             icon: const Icon(Icons.delete_outline, color: Brand.danger),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class AdminStudentSearchPage extends StatefulWidget {
+  const AdminStudentSearchPage({required this.api, super.key});
+  final ApiService api;
+
+  @override
+  State<AdminStudentSearchPage> createState() => _AdminStudentSearchPageState();
+}
+
+class _AdminStudentSearchPageState extends State<AdminStudentSearchPage> {
+  List<String> availableSkills = [];
+  final Set<String> selectedSkills = {};
+  String match = 'any';
+  double minConfidence = 0.5;
+  List<Map<String, dynamic>> results = [];
+  bool loadingSkills = true;
+  bool searching = false;
+  bool searched = false;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSkills();
+  }
+
+  Future<void> _loadSkills() async {
+    try {
+      final skills = await widget.api.adminSkillOptions();
+      if (mounted) setState(() { availableSkills = skills; loadingSkills = false; });
+    } on ApiException catch (exception) {
+      if (mounted) setState(() { error = exception.message; loadingSkills = false; });
+    }
+  }
+
+  Future<void> _search() async {
+    if (selectedSkills.isEmpty) {
+      setState(() { results = []; searched = true; error = null; });
+      return;
+    }
+    setState(() { searching = true; error = null; });
+    try {
+      final result = await widget.api.studentsBySkill(
+        skills: selectedSkills.toList(),
+        match: match,
+        minConfidence: minConfidence,
+      );
+      if (mounted)
+        setState(() {
+          results = result.map((s) => Map<String, dynamic>.from(s as Map)).toList();
+          searched = true;
+        });
+    } on ApiException catch (exception) {
+      if (mounted) setState(() => error = exception.message);
+    } finally {
+      if (mounted) setState(() => searching = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    children: [
+      Text(
+        'Find students by skill',
+        style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
+      ),
+      const SizedBox(height: 6),
+      const Text(
+        'Aggregate students across profiles by the skills they have evidence for.',
+        style: TextStyle(color: Colors.black54),
+      ),
+      const SizedBox(height: 22),
+      if (error != null)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        ),
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Skills', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+              const SizedBox(height: 10),
+              if (loadingSkills) const LinearProgressIndicator(),
+              if (!loadingSkills && availableSkills.isEmpty)
+                const Text('No students have any recorded skills yet.', style: TextStyle(color: Colors.black54)),
+              if (!loadingSkills && availableSkills.isNotEmpty)
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final skill in availableSkills)
+                      FilterChip(
+                        label: Text(skill),
+                        selected: selectedSkills.contains(skill),
+                        selectedColor: const Color(0xffe0f2e9),
+                        checkmarkColor: Brand.primary,
+                        onSelected: (value) => setState(
+                          () => value ? selectedSkills.add(skill) : selectedSkills.remove(skill),
+                        ),
+                      ),
+                  ],
+                ),
+              const SizedBox(height: 22),
+              const Text('Match', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+              const SizedBox(height: 10),
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'any', label: Text('Any selected skill (OR)')),
+                  ButtonSegment(value: 'all', label: Text('All selected skills (AND)')),
+                ],
+                selected: {match},
+                onSelectionChanged: (selection) => setState(() => match = selection.first),
+              ),
+              const SizedBox(height: 22),
+              Row(
+                children: [
+                  const Text('Minimum confidence', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+                  const Spacer(),
+                  Text('${(minConfidence * 100).round()}%', style: const TextStyle(color: Brand.primary, fontWeight: FontWeight.w700)),
+                ],
+              ),
+              Slider(
+                value: minConfidence,
+                min: 0,
+                max: 1,
+                divisions: 20,
+                activeColor: Brand.primary,
+                label: '${(minConfidence * 100).round()}%',
+                onChanged: (value) => setState(() => minConfidence = value),
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton.icon(
+                  onPressed: searching ? null : _search,
+                  icon: searching
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.search),
+                  label: Text(searching ? 'Searching...' : 'Search'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(height: 20),
+      if (searched) _ResultsTable(results: results),
+    ],
+  );
+}
+
+class _ResultsTable extends StatelessWidget {
+  const _ResultsTable({required this.results});
+  final List<Map<String, dynamic>> results;
+
+  static const _borderColor = Color(0xffe3e8e5);
+
+  @override
+  Widget build(BuildContext context) {
+    if (results.isEmpty) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text('No students match.', style: TextStyle(color: Colors.black54)),
+        ),
+      );
+    }
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            color: const Color(0xfff1f5f2),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+            child: const Row(
+              children: [
+                Expanded(flex: 3, child: Text('Student', style: TextStyle(fontWeight: FontWeight.w700))),
+                Expanded(flex: 3, child: Text('College', style: TextStyle(fontWeight: FontWeight.w700))),
+                Expanded(flex: 4, child: Text('Matched skills', style: TextStyle(fontWeight: FontWeight.w700))),
+              ],
+            ),
+          ),
+          for (final student in results)
+            Container(
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: _borderColor)),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(student['name']?.toString() ?? '', style: const TextStyle(fontWeight: FontWeight.w600)),
+                        Text(student['email']?.toString() ?? '', style: const TextStyle(color: Colors.black54, fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: Text(student['college_name']?.toString() ?? '', style: const TextStyle(color: Colors.black87)),
+                  ),
+                  Expanded(
+                    flex: 4,
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final skill in (student['matched_skills'] as List? ?? []))
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                            decoration: BoxDecoration(
+                              border: Border.all(color: _borderColor),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              '${skill['skill_name']} · ${((skill['confidence'] as num) * 100).round()}%',
+                              style: const TextStyle(fontSize: 12.5, color: Brand.primaryDark),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -929,6 +1337,20 @@ class _ChatPageState extends State<ChatPage> {
   bool loadingSessions = true;
   bool sending = false;
   String? error;
+  String? activeTool;
+
+  static const _toolLabels = {
+    'search_documents': 'Searching your documents…',
+    'list_documents': 'Checking your documents…',
+    'get_me': 'Checking GitHub…',
+    'search_repositories': 'Searching your GitHub repos…',
+    'get_repository_tree': 'Browsing your repo…',
+    'get_file_contents': 'Reading a file from GitHub…',
+    'search_code': 'Searching your code…',
+    'list_commits': 'Checking commit history…',
+    'get_commit': 'Checking a commit…',
+    'list_branches': 'Checking branches…',
+  };
 
   @override
   void initState() {
@@ -1011,6 +1433,9 @@ class _ChatPageState extends State<ChatPage> {
         onSession: (id) => setState(() => sessionId = id),
         onToken: (token) => setState(() => messages.last['content'] += token),
         onSources: (_) {},
+        onToolCall: (name, _) =>
+            setState(() => activeTool = _toolLabels[name] ?? 'Using a tool…'),
+        onToolResult: (_) => setState(() => activeTool = null),
       );
       await _loadSessions();
     } on ApiException catch (exception) {
@@ -1018,7 +1443,11 @@ class _ChatPageState extends State<ChatPage> {
     } catch (_) {
       if (mounted) setState(() => error = 'Could not connect to RAG Bot.');
     } finally {
-      if (mounted) setState(() => sending = false);
+      if (mounted)
+        setState(() {
+          sending = false;
+          activeTool = null;
+        });
     }
   }
 
@@ -1203,19 +1632,55 @@ class _ChatPageState extends State<ChatPage> {
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
         ),
+      if (activeTool != null)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                activeTool!,
+                style: const TextStyle(
+                  color: Colors.black54,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+          ),
+        ),
       Padding(
         padding: const EdgeInsets.all(14),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
-              child: TextField(
-                controller: question,
-                minLines: 1,
-                maxLines: 5,
-                onSubmitted: (_) => _send(),
-                decoration: const InputDecoration(
-                  hintText: 'Ask RAG Bot about your documents...',
+              child: Focus(
+                onKeyEvent: (node, event) {
+                  final isEnter =
+                      event.logicalKey == LogicalKeyboardKey.enter ||
+                      event.logicalKey == LogicalKeyboardKey.numpadEnter;
+                  if (event is KeyDownEvent &&
+                      isEnter &&
+                      !HardwareKeyboard.instance.isShiftPressed) {
+                    _send();
+                    return KeyEventResult.handled;
+                  }
+                  return KeyEventResult.ignored;
+                },
+                child: TextField(
+                  controller: question,
+                  minLines: 1,
+                  maxLines: 5,
+                  decoration: const InputDecoration(
+                    hintText:
+                        'Ask RAG Bot about your documents... (Shift+Enter for a new line)',
+                  ),
                 ),
               ),
             ),
@@ -1331,7 +1796,11 @@ class _ChatPageState extends State<ChatPage> {
   );
 
   Future<void> _pickDocument() async {
-    final result = await FilePicker.platform.pickFiles(withData: true);
+    final result = await FilePicker.platform.pickFiles(
+      withData: true,
+      type: FileType.custom,
+      allowedExtensions: kAllowedDocumentExtensions,
+    );
     final file = result?.files.single;
     if (file?.bytes == null) return;
     try {
@@ -1371,6 +1840,40 @@ class _DocumentsPageState extends State<DocumentsPage> {
     }
   }
 
+  Future<void> _delete(Map<String, dynamic> document) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete document?'),
+        content: Text(
+          '"${document['filename'] ?? 'This document'}" will be removed from '
+          'RAG Bot and your study tools. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await widget.api.deleteDocument(document['document_id'].toString());
+      await _load();
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Document deleted.')));
+    } on ApiException catch (exception) {
+      if (mounted) setState(() => error = exception.message);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => ListView(
     children: [
@@ -1397,6 +1900,12 @@ class _DocumentsPageState extends State<DocumentsPage> {
             ),
             title: Text(document['filename']?.toString() ?? 'Untitled'),
             subtitle: Text('${document['chunk_count'] ?? 0} indexed chunks'),
+            trailing: IconButton(
+              tooltip: 'Delete document',
+              icon: const Icon(Icons.delete_outline),
+              onPressed: () =>
+                  _delete(Map<String, dynamic>.from(document as Map)),
+            ),
           ),
         ),
       if (documents.isEmpty && error == null)
@@ -1423,10 +1932,14 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   final form = <String, TextEditingController>{};
+  final githubTokenField = TextEditingController();
   bool editing = false;
   bool loading = true;
   bool saving = false;
   String? error;
+  bool? githubConnected;
+  bool githubBusy = false;
+  String? githubError;
 
   static const fields = [
     'full_name',
@@ -1450,12 +1963,63 @@ class _ProfilePageState extends State<ProfilePage> {
     super.initState();
     for (final field in fields) form[field] = TextEditingController();
     _load();
+    _loadGithubStatus();
   }
 
   @override
   void dispose() {
     for (final controller in form.values) controller.dispose();
+    githubTokenField.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadGithubStatus() async {
+    try {
+      final connected = await widget.api.githubTokenStatus();
+      if (mounted) setState(() => githubConnected = connected);
+    } on ApiException {
+      if (mounted) setState(() => githubConnected = false);
+    }
+  }
+
+  Future<void> _connectGithub() async {
+    final token = githubTokenField.text.trim();
+    if (token.isEmpty) return;
+    setState(() {
+      githubBusy = true;
+      githubError = null;
+    });
+    try {
+      await widget.api.connectGithubToken(token);
+      githubTokenField.clear();
+      if (mounted) {
+        setState(() => githubConnected = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('GitHub connected.')),
+        );
+      }
+    } on ApiException catch (exception) {
+      if (mounted) setState(() => githubError = exception.message);
+    } finally {
+      if (mounted) setState(() => githubBusy = false);
+    }
+  }
+
+  Future<void> _disconnectGithub() async {
+    setState(() => githubBusy = true);
+    try {
+      await widget.api.disconnectGithubToken();
+      if (mounted) {
+        setState(() => githubConnected = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('GitHub disconnected.')),
+        );
+      }
+    } on ApiException catch (exception) {
+      if (mounted) setState(() => githubError = exception.message);
+    } finally {
+      if (mounted) setState(() => githubBusy = false);
+    }
   }
 
   Future<void> _load() async {
@@ -1613,12 +2177,102 @@ class _ProfilePageState extends State<ProfilePage> {
                 const SizedBox(height: 18),
                 narrow ? academic : background,
                 if (narrow) ...[const SizedBox(height: 18), background],
+                const SizedBox(height: 18),
+                _githubCard(),
               ],
             );
           },
         ),
     ],
   );
+
+  Widget _githubCard() {
+    final connected = githubConnected;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.code, color: Brand.primary),
+                const SizedBox(width: 10),
+                const Text(
+                  'GitHub connection',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                ),
+                const Spacer(),
+                if (connected != null)
+                  Chip(
+                    label: Text(connected ? 'Connected' : 'Not connected'),
+                    backgroundColor: connected
+                        ? const Color(0xffe0f2e9)
+                        : const Color(0xfff1f1f1),
+                    labelStyle: TextStyle(
+                      color: connected
+                          ? const Color(0xff1c6e4a)
+                          : Colors.black54,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Connect a fine-grained GitHub personal access token, scoped '
+              'read-only to the repos you want RAG Bot to be able to read '
+              'from when you ask about your own projects.',
+              style: TextStyle(color: Colors.black54),
+            ),
+            const SizedBox(height: 16),
+            if (githubError != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  githubError!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            if (connected == null)
+              const LinearProgressIndicator()
+            else if (connected)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: githubBusy ? null : _disconnectGithub,
+                  icon: const Icon(Icons.link_off),
+                  label: Text(githubBusy ? 'Disconnecting...' : 'Disconnect'),
+                ),
+              )
+            else
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: githubTokenField,
+                      obscureText: true,
+                      enabled: !githubBusy,
+                      decoration: const InputDecoration(
+                        labelText: 'GitHub personal access token',
+                        hintText: 'github_pat_...',
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  FilledButton(
+                    onPressed: githubBusy ? null : _connectGithub,
+                    child: Text(githubBusy ? 'Connecting...' : 'Connect'),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _profileCard(String title, IconData icon, List<Widget> children) =>
       Card(
@@ -3322,25 +3976,34 @@ class _SkillsPageState extends State<SkillsPage> {
   String? error;
   bool loading = true;
   bool working = false;
-  final githubUsername = TextEditingController();
   final rawTerm = TextEditingController();
   final sourceRef = TextEditingController(text: 'student-profile');
   final confidence = TextEditingController(text: '0.8');
   Map<String, dynamic>? githubResult;
+  bool? githubConnected;
 
   @override
   void initState() {
     super.initState();
     _loadSkills();
+    _loadGithubStatus();
   }
 
   @override
   void dispose() {
-    githubUsername.dispose();
     rawTerm.dispose();
     sourceRef.dispose();
     confidence.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadGithubStatus() async {
+    try {
+      final connected = await widget.api.githubTokenStatus();
+      if (mounted) setState(() => githubConnected = connected);
+    } on ApiException {
+      if (mounted) setState(() => githubConnected = false);
+    }
   }
 
   Future<void> _loadSkills() async {
@@ -3376,10 +4039,10 @@ class _SkillsPageState extends State<SkillsPage> {
   }
 
   Future<void> _syncGithub() async {
-    if (githubUsername.text.trim().isEmpty) return;
+    if (githubConnected != true) return;
     setState(() => working = true);
     try {
-      final result = await widget.api.syncGithub(githubUsername.text.trim());
+      final result = await widget.api.syncGithub();
       if (mounted) setState(() => githubResult = result);
       await _loadSkills();
       if (mounted) _notice('GitHub evidence synchronized.');
@@ -3608,23 +4271,23 @@ class _SkillsPageState extends State<SkillsPage> {
               ),
               const SizedBox(height: 6),
               const Text(
-                'Scan public repositories and language evidence.',
+                'Scans the repos you own on your connected GitHub account for language evidence.',
                 style: TextStyle(color: Colors.black54),
               ),
               const SizedBox(height: 12),
-              TextField(
-                controller: githubUsername,
-                decoration: const InputDecoration(
-                  labelText: 'GitHub username',
-                  prefixIcon: Icon(Icons.code),
+              if (githubConnected == null)
+                const LinearProgressIndicator()
+              else if (githubConnected == false)
+                Text(
+                  'Connect your GitHub account on the Profile page first.',
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                )
+              else
+                FilledButton.icon(
+                  onPressed: working ? null : _syncGithub,
+                  icon: const Icon(Icons.sync),
+                  label: const Text('Sync GitHub'),
                 ),
-              ),
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: working ? null : _syncGithub,
-                icon: const Icon(Icons.sync),
-                label: const Text('Sync GitHub'),
-              ),
               if (githubResult != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),

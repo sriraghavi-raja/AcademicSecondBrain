@@ -14,6 +14,9 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
+/// File extensions the backend accepts for document uploads (see DocumentService).
+const List<String> kAllowedDocumentExtensions = ['pdf', 'docx', 'pptx', 'txt', 'md'];
+
 class ApiService {
   ApiService({String? baseUrl})
     : baseUrl = baseUrl ?? 'http://10.234.243.63:8000';
@@ -116,11 +119,11 @@ class ApiService {
     }
   }
 
-  Future<AuthResult> login(String name, String password) async {
+  Future<AuthResult> login(String email, String password) async {
     final json = await _request(
       'POST',
       '/api/auth/login',
-      body: {'name': name, 'password': password},
+      body: {'email': email, 'password': password},
       authenticated: false,
     );
     final result = AuthResult.fromJson(Map<String, dynamic>.from(json));
@@ -129,17 +132,10 @@ class ApiService {
     return result;
   }
 
-  Future<AuthResult> signup(
-    Map<String, dynamic> fields, {
-    String? adminKey,
-  }) async {
-    final headers = <String, String>{'Content-Type': 'application/json'};
-    if (adminKey != null && adminKey.trim().isNotEmpty) {
-      headers['X-Admin-Signup-Key'] = adminKey.trim();
-    }
+  Future<AuthResult> signup(Map<String, dynamic> fields) async {
     final response = await http.post(
       _uri('/api/auth/signup'),
-      headers: headers,
+      headers: {'Content-Type': 'application/json'},
       body: jsonEncode(fields),
     );
     final json = _parse(response);
@@ -192,6 +188,21 @@ class ApiService {
   Future<List<dynamic>> listDocuments() async =>
       List<dynamic>.from(await get('/api/docs') as List);
 
+  Future<void> deleteDocument(String documentId) async {
+    await delete('/api/docs/${Uri.encodeComponent(documentId)}');
+  }
+
+  Future<bool> githubTokenStatus() async =>
+      (await get('/api/github/token') as Map)['connected'] as bool;
+
+  Future<void> connectGithubToken(String token) async {
+    await post('/api/github/token', {'token': token});
+  }
+
+  Future<void> disconnectGithubToken() async {
+    await delete('/api/github/token');
+  }
+
   Future<Map<String, dynamic>> getProfile() async =>
       Map<String, dynamic>.from(await get('/api/profile') as Map);
 
@@ -218,6 +229,27 @@ class ApiService {
     await delete('/api/admin/users/$userId');
   }
 
+  Future<Map<String, dynamic>> createAdminUser(
+    Map<String, dynamic> fields,
+  ) async => Map<String, dynamic>.from(await post('/api/admin/users', fields) as Map);
+
+  Future<List<String>> adminSkillOptions() async =>
+      List<String>.from((await get('/api/admin/skills') as Map)['skills'] as List);
+
+  Future<List<dynamic>> studentsBySkill({
+    required List<String> skills,
+    String match = 'any',
+    double minConfidence = 0.0,
+  }) async {
+    final params = [
+      for (final skill in skills) 'skill=${Uri.encodeQueryComponent(skill)}',
+      'match=$match',
+      'min_confidence=$minConfidence',
+    ].join('&');
+    final result = await get('/api/admin/students/by-skill?$params') as Map;
+    return List<dynamic>.from(result['students'] as List);
+  }
+
   Future<Map<String, dynamic>> getSkills() async =>
       Map<String, dynamic>.from(await get('/api/skills') as Map);
 
@@ -236,11 +268,9 @@ class ApiService {
         as Map,
   );
 
-  Future<Map<String, dynamic>> syncGithub(String username) async =>
-      Map<String, dynamic>.from(
-        await post('/api/skills/sync/github', {'github_username': username})
-            as Map,
-      );
+  /// Syncs the caller's own repos using their connected GitHub PAT — see connectGithubToken.
+  Future<Map<String, dynamic>> syncGithub() async =>
+      Map<String, dynamic>.from(await post('/api/skills/sync/github', {}) as Map);
 
   Future<Map<String, dynamic>> addProject({
     required String title,
@@ -267,10 +297,24 @@ class ApiService {
     String filename,
     List<int> bytes,
   ) async {
-    final request = http.MultipartRequest(
-      'POST',
-      _uri('/api/career/certifications'),
+    final response = await _sendMultipart(
+      '/api/career/certifications',
+      filename,
+      bytes,
     );
+    return Map<String, dynamic>.from(_parse(response) as Map);
+  }
+
+  /// Sends a single-file multipart POST, refreshing and retrying once on a 401 —
+  /// the same recovery `_request` gives every JSON call, which the two multipart
+  /// uploads previously bypassed entirely.
+  Future<http.Response> _sendMultipart(
+    String path,
+    String filename,
+    List<int> bytes, {
+    bool retry = true,
+  }) async {
+    final request = http.MultipartRequest('POST', _uri(path));
     if (accessToken != null) {
       request.headers['Authorization'] = 'Bearer $accessToken';
     }
@@ -278,7 +322,13 @@ class ApiService {
       http.MultipartFile.fromBytes('file', bytes, filename: filename),
     );
     final response = await http.Response.fromStream(await request.send());
-    return Map<String, dynamic>.from(_parse(response) as Map);
+    if (response.statusCode == 401 && retry && refreshToken != null) {
+      final refreshed = await _refreshOnce();
+      if (refreshed) {
+        return _sendMultipart(path, filename, bytes, retry: false);
+      }
+    }
+    return response;
   }
 
   Future<http.Response> generateResume({String? targetRole}) async {
@@ -413,6 +463,8 @@ class ApiService {
     required void Function(String sessionId) onSession,
     required void Function(String token) onToken,
     required void Function(List<dynamic> sources) onSources,
+    void Function(String toolName, Map<String, dynamic> arguments)? onToolCall,
+    void Function(String toolName)? onToolResult,
   }) async {
     final request = http.Request('POST', _uri('/chat'));
     request.headers['Content-Type'] = 'application/json';
@@ -435,6 +487,8 @@ class ApiService {
           onSession: onSession,
           onToken: onToken,
           onSources: onSources,
+          onToolCall: onToolCall,
+          onToolResult: onToolResult,
         );
       }
     }
@@ -464,20 +518,20 @@ class ApiService {
             onToken(payload['content'] as String);
           case 'sources':
             onSources(List<dynamic>.from(payload['sources'] as List));
+          case 'tool_call':
+            onToolCall?.call(
+              payload['name'] as String,
+              Map<String, dynamic>.from(payload['arguments'] as Map? ?? {}),
+            );
+          case 'tool_result':
+            onToolResult?.call(payload['name'] as String);
         }
       }
     }
   }
 
   Future<dynamic> uploadDocument(String filename, List<int> bytes) async {
-    final request = http.MultipartRequest('POST', _uri('/api/docs/upload'));
-    if (accessToken != null) {
-      request.headers['Authorization'] = 'Bearer $accessToken';
-    }
-    request.files.add(
-      http.MultipartFile.fromBytes('file', bytes, filename: filename),
-    );
-    final response = await http.Response.fromStream(await request.send());
+    final response = await _sendMultipart('/api/docs/upload', filename, bytes);
     return _parse(response);
   }
 }
