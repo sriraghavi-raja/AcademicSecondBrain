@@ -12,20 +12,18 @@ router = APIRouter(prefix="/api/skills", tags=["GitHub Skills"])
 token_router = APIRouter(prefix="/api/github", tags=["GitHub Connection"])
 
 
-class GitHubSyncRequest(BaseModel):
-    github_username: str = Field(min_length=1)
-
-
 @router.post("/sync/github")
 def sync_github_skills(
-    request: GitHubSyncRequest,
     current_user: Annotated[dict, Depends(get_current_user)],
 ):
+    """Syncs the caller's own repos, using their connected PAT — see /api/github/token."""
+    student_id = current_user["user_id"]
+    token = github_credentials.get_token(student_id)
+    if token is None:
+        raise HTTPException(status_code=400, detail="Connect your GitHub account before syncing.")
     try:
-        return sync_github(current_user["user_id"], request.github_username)
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-    except Exception as error:
+        return sync_github(student_id, token)
+    except GitHubSyncError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
 
 

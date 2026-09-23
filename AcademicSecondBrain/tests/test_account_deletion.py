@@ -101,7 +101,7 @@ class DeleteUserTests(AccountTestCase):
         self.assertGreater(self.index.vector_store.client.count(), 0)
         self.assertEqual(len([p for p in self.stored_files() if self.bob in p.parts]), 2)
         self.assertTrue((self.output_dir / f"{self.bob}_resume.docx").exists())
-        self.assertEqual(self.auth.login("bob", "password-123")["user"]["user_id"], self.bob)
+        self.assertEqual(self.auth.login("bob@example.org", "password-123")["user"]["user_id"], self.bob)
         self.assertGreaterEqual(self.refresh_sessions(self.bob), 1)
 
     def test_indexed_nodes_without_a_document_record_are_removed_too(self):
@@ -159,10 +159,9 @@ class SchemaCoverageTests(IndexedTestCase):
 class AdminDeleteApiTests(AccountTestCase):
     def setUp(self):
         super().setUp()
-        with patch.dict("os.environ", {"ADMIN_SIGNUP_KEY": "initial-admin-key"}):
-            admin_tokens = self.auth.signup(
-                "boss", "boss@example.org", "password-123", "College", "2026", "admin", "initial-admin-key"
-            )
+        admin_tokens = self.auth.signup(
+            "boss", "boss@example.org", "password-123", "College", "2026", "admin"
+        )
         self.admin_id = admin_tokens["user"]["user_id"]
         self.admin = {"Authorization": f"Bearer {admin_tokens['access_token']}"}
         self.student = {"Authorization": f"Bearer {self.alice_tokens['access_token']}"}

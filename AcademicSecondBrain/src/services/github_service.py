@@ -44,26 +44,24 @@ def validate_token(token: str, requester: Callable[..., Any] = requests.get) -> 
 
 def sync_github(
     student_id: str,
-    github_username: str,
+    token: str,
     max_repos: Optional[int] = None,
-    token: Optional[str] = None,
     requester: Callable[..., Any] = requests.get,
 ) -> dict[str, Any]:
-    """Synchronize public repositories and language evidence incrementally."""
-    if not github_username.strip():
-        raise ValueError("github_username is required")
-
+    """Synchronizes the connected GitHub account's own repositories into the student's skill
+    graph. The token — already proven to belong to this student when they connected it — is what
+    identifies whose repos these are; there is no separate, self-reported username to spoof.
+    Only repos the student owns are considered (affiliation=owner), not ones they merely
+    collaborate on, so skill evidence never comes from someone else's project.
+    """
     limit = max_repos or int(os.getenv("GITHUB_SYNC_MAX_REPOS", "10"))
     if limit < 1:
         raise ValueError("GITHUB_SYNC_MAX_REPOS must be at least 1")
 
-    headers = {"Accept": "application/vnd.github+json"}
-    access_token = token or os.getenv("GITHUB_TOKEN")
-    if access_token:
-        headers["Authorization"] = f"Bearer {access_token}"
+    headers = {"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}"}
 
     repos = _request_json(
-        f"https://api.github.com/users/{github_username.strip()}/repos?per_page={limit}",
+        f"https://api.github.com/user/repos?affiliation=owner&per_page={limit}&sort=updated",
         headers,
         requester,
     )

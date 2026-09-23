@@ -17,7 +17,7 @@ class FakeResponse:
 class GitHubServiceTests(IsolatedDatabaseTestCase):
     def test_sync_maps_languages_and_keeps_partial_progress(self):
         responses = {
-            "https://api.github.com/users/alice/repos?per_page=10": FakeResponse(
+            "https://api.github.com/user/repos?affiliation=owner&per_page=10&sort=updated": FakeResponse(
                 200,
                 [
                     {"full_name": "alice/one"},
@@ -34,7 +34,7 @@ class GitHubServiceTests(IsolatedDatabaseTestCase):
             return responses[url]
 
         with patch("src.services.github_service.add_evidence") as add:
-            result = sync_github("student-1", "alice", requester=requester)
+            result = sync_github("student-1", "ghp_alice_token", requester=requester)
 
         self.assertEqual(result["repos_scanned"], 2)
         self.assertEqual(result["skills_added"], 2)
@@ -43,7 +43,7 @@ class GitHubServiceTests(IsolatedDatabaseTestCase):
 
     def test_resync_uses_same_github_source_reference(self):
         responses = {
-            "https://api.github.com/users/alice/repos?per_page=1": FakeResponse(
+            "https://api.github.com/user/repos?affiliation=owner&per_page=1&sort=updated": FakeResponse(
                 200, [{"full_name": "alice/one"}]
             ),
             "https://api.github.com/repos/alice/one/languages": FakeResponse(
@@ -55,11 +55,41 @@ class GitHubServiceTests(IsolatedDatabaseTestCase):
             return responses[url]
 
         with patch("src.services.github_service.add_evidence") as add:
-            sync_github("student-1", "alice", max_repos=1, requester=requester)
+            sync_github("student-1", "ghp_alice_token", max_repos=1, requester=requester)
 
         add.assert_called_once()
         self.assertEqual(add.call_args.kwargs["source_type"], "github")
         self.assertEqual(add.call_args.kwargs["source_ref"], "alice/one")
+
+    def test_the_repo_list_is_fetched_with_the_students_own_token(self):
+        """The token, not a username, is what proves whose repos these are — nothing here is
+        self-reported.
+        """
+        seen_headers = {}
+
+        def requester(url, headers, **kwargs):
+            seen_headers[url] = headers
+            if "user/repos" in url:
+                return FakeResponse(200, [{"full_name": "alice/one"}])
+            return FakeResponse(200, {"Python": 100})
+
+        with patch("src.services.github_service.add_evidence"):
+            sync_github("student-1", "ghp_alice_token", requester=requester)
+
+        for headers in seen_headers.values():
+            self.assertEqual(headers["Authorization"], "Bearer ghp_alice_token")
+
+    def test_only_owned_repositories_are_requested_not_ones_merely_collaborated_on(self):
+        captured_url = {}
+
+        def requester(url, **kwargs):
+            captured_url["url"] = url
+            return FakeResponse(200, [])
+
+        with patch("src.services.github_service.add_evidence"):
+            sync_github("student-1", "ghp_alice_token", requester=requester)
+
+        self.assertIn("affiliation=owner", captured_url["url"])
 
 
 class ValidateTokenTests(unittest.TestCase):

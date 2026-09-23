@@ -108,5 +108,82 @@ class SkillStoreTests(unittest.TestCase):
         add.assert_called_once()
 
 
+class MatchStudentsBySkillsTests(unittest.TestCase):
+    """Admin-facing aggregation: which students have which skills, at what confidence."""
+
+    def setUp(self):
+        self.database = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.database.close()
+        self.original_db_path = database.DB_PATH
+        database.DB_PATH = self.database.name
+        skill_registry.init_db()
+
+    def tearDown(self):
+        database.DB_PATH = self.original_db_path
+        os.unlink(self.database.name)
+
+    def _give(self, student_id, skill_name, confidence, source_ref="ref"):
+        skill_registry.upsert_skill(student_id, skill_name)
+        skill_registry.upsert_skill_evidence(
+            student_id, skill_name, skill_name.lower(), "manual", source_ref, confidence
+        )
+
+    def test_any_match_includes_a_student_with_just_one_of_the_requested_skills(self):
+        self._give("alice", "Python", 0.9)
+        self._give("bob", "SQL", 0.9)
+        self._give("carol", "Rust", 0.9)
+
+        matches = skill_registry.match_students_by_skills(["Python", "SQL"], match="any")
+
+        self.assertEqual(set(matches.keys()), {"alice", "bob"})
+
+    def test_all_match_requires_every_requested_skill(self):
+        self._give("alice", "Python", 0.9)
+        self._give("alice", "SQL", 0.9)
+        self._give("bob", "Python", 0.9)
+
+        matches = skill_registry.match_students_by_skills(["Python", "SQL"], match="all")
+
+        self.assertEqual(set(matches.keys()), {"alice"})
+        self.assertEqual(
+            {m["skill_name"] for m in matches["alice"]}, {"Python", "SQL"}
+        )
+
+    def test_a_confidence_threshold_excludes_weaker_evidence(self):
+        self._give("alice", "Python", 0.9)
+        self._give("bob", "Python", 0.3)
+
+        matches = skill_registry.match_students_by_skills(["Python"], match="any", min_confidence=0.7)
+
+        self.assertEqual(set(matches.keys()), {"alice"})
+
+    def test_confidence_reported_is_the_max_across_that_students_evidence(self):
+        self._give("alice", "Python", 0.4, source_ref="ref-1")
+        self._give("alice", "Python", 0.9, source_ref="ref-2")
+
+        matches = skill_registry.match_students_by_skills(["Python"], match="any")
+
+        self.assertEqual(matches["alice"][0]["confidence"], 0.9)
+
+    def test_no_skills_requested_returns_no_matches(self):
+        self._give("alice", "Python", 0.9)
+
+        self.assertEqual(skill_registry.match_students_by_skills([]), {})
+
+    def test_an_unknown_skill_name_matches_nobody(self):
+        self._give("alice", "Python", 0.9)
+
+        matches = skill_registry.match_students_by_skills(["Cobol"], match="any")
+
+        self.assertEqual(matches, {})
+
+    def test_list_skill_names_with_evidence_is_sorted_and_deduplicated(self):
+        self._give("alice", "Python", 0.9)
+        self._give("bob", "Python", 0.5)
+        self._give("bob", "SQL", 0.5)
+
+        self.assertEqual(skill_registry.list_skill_names_with_evidence(), ["Python", "SQL"])
+
+
 if __name__ == "__main__":
     unittest.main()
