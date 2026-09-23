@@ -11,7 +11,7 @@ import asyncio
 import json
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
@@ -22,6 +22,7 @@ from llama_index.core.tools.types import ToolOutput
 from src.api import chat_router
 from src.api.auth import get_current_user
 from src.rag.synthesis.agent_chat import handle_agent_chat
+from src.rag.registry import github_credentials
 from src.rag.registry import sessions as session_registry
 from src.services.auth_service import AuthService
 from src.services.rag_service import RagService
@@ -203,6 +204,32 @@ class AgentChatPlumbingTests(IsolatedDatabaseTestCase):
 
         build_tools.assert_called_once()
         self.assertEqual(build_tools.call_args.args[3], [marker])
+
+    def test_a_connected_github_token_adds_github_tools_to_the_agent(self):
+        github_credentials.save_token("alice", "ghp_alice_token")
+        github_tool = Mock(name="github_tool")
+        fake_agent = FakeFunctionAgent([stream("ok")], result="ok")
+
+        with patch_agent(fake_agent), patch(
+            "src.rag.synthesis.agent_chat.build_github_tools",
+            new_callable=AsyncMock,
+            return_value=[github_tool],
+        ) as build_github:
+            asyncio.run(collect_events())
+
+        build_github.assert_called_once_with("ghp_alice_token")
+        self.assertIn(github_tool, fake_agent.tools)
+
+    def test_no_connected_github_token_means_no_github_tools(self):
+        # No token saved for "alice" in this temp database, so build_github_tools runs for real
+        # (its own no-token fast path is covered in tests/test_github_tools.py) and the agent's
+        # tool list is exactly what build_document_tools contributes: search_documents + list_documents.
+        fake_agent = FakeFunctionAgent([stream("ok")], result="ok")
+
+        with patch_agent(fake_agent):
+            asyncio.run(collect_events())
+
+        self.assertEqual(len(fake_agent.tools), 2)
 
     def test_a_document_id_scope_reaches_the_agents_tools(self):
         node = SimpleNamespace(

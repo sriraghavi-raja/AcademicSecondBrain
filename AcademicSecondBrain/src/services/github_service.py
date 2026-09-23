@@ -14,12 +14,29 @@ class GitHubSyncError(RuntimeError):
     pass
 
 
+class InvalidGitHubToken(ValueError):
+    """The token does not authenticate against GitHub."""
+
+
 def _request_json(
     url: str,
     headers: dict[str, str],
     requester: Callable[..., Any] = requests.get,
 ) -> Any:
     response = requester(url, headers=headers, timeout=15)
+    if response.status_code >= 400:
+        raise GitHubSyncError(f"GitHub request failed with HTTP {response.status_code}")
+    return response.json()
+
+
+def validate_token(token: str, requester: Callable[..., Any] = requests.get) -> dict:
+    """Confirms a token actually authenticates against GitHub before we store it. Returns the
+    /user payload (the account it belongs to), so the caller can show who just connected.
+    """
+    headers = {"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}"}
+    response = requester("https://api.github.com/user", headers=headers, timeout=15)
+    if response.status_code in (401, 403):
+        raise InvalidGitHubToken("GitHub rejected this token")
     if response.status_code >= 400:
         raise GitHubSyncError(f"GitHub request failed with HTTP {response.status_code}")
     return response.json()

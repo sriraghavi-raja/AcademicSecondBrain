@@ -10,8 +10,10 @@ from llama_index.core.agent.workflow import AgentStream, FunctionAgent, ToolCall
 from llama_index.core.base.llms.types import ChatMessage, MessageRole
 
 from src.rag.registry import documents as document_registry
+from src.rag.registry import github_credentials
 from src.rag.registry.sessions import get_or_create_session, save_session
 from src.rag.synthesis.agent_tools import build_document_tools
+from src.rag.synthesis.github_tools import build_github_tools
 
 SYSTEM_PROMPT = (
     "You are a strict and precise academic research assistant for one student. You have a "
@@ -22,7 +24,13 @@ SYSTEM_PROMPT = (
     "answer from your own general knowledge — just make clear that part of the answer is not from "
     "their documents. Never present general knowledge as if it came from their material. Ordinary "
     "conversation does not need a tool call. Cite the file name (and page, when given) for any "
-    "claim that came from a search result."
+    "claim that came from a search result.\n\n"
+    "When the student has connected their GitHub account, you also have read-only tools over "
+    "their own repositories (file contents, structure, commit history, code search). Use them "
+    "only when the student asks about their own code or projects — for interview prep, "
+    "explaining a repo, or resume-style summaries of what they built. Never use them for general "
+    "programming questions unrelated to their repos, and never claim to be able to change "
+    "anything in GitHub — you cannot."
 )
 
 
@@ -45,6 +53,7 @@ async def handle_agent_chat(
 
     document_titles = [document["filename"] for document in document_registry.list_documents(user_id)]
     tools, sources = build_document_tools(retriever, document_titles, allowed_document_ids, node_postprocessors)
+    tools = tools + await build_github_tools(github_credentials.get_token(user_id))
     agent = FunctionAgent(tools=tools, llm=llm, system_prompt=SYSTEM_PROMPT)
 
     yield f"data: {json.dumps({'type': 'session', 'session_id': active_session_id})}\n\n"

@@ -10,7 +10,7 @@ from src.rag.synthesis.engine import get_academic_llm
 from src.rag.ingestion.indexer import PERSIST_DIR, load_or_create_index
 from src.rag.retrieval.retreiver import RetrieverFactory, build_postprocessors
 # from src.api import chat_router
-from src.api import chat_router, sessions_router, documents_router, skills_router, github_router, study_router, career_router, profile_router, dashboard_router, auth_router, admin_router
+from src.api import chat_router, sessions_router, documents_router, skills_router, github_router, github_token_router, study_router, career_router, profile_router, dashboard_router, auth_router, admin_router
 from src.api.auth import get_current_user
 from src.rag.registry import auth as auth_registry
 from src.services.account_service import AccountService
@@ -109,6 +109,7 @@ app.include_router(sessions_router, dependencies=protected_dependencies)
 app.include_router(documents_router, dependencies=protected_dependencies)
 app.include_router(skills_router, dependencies=protected_dependencies)
 app.include_router(github_router, dependencies=protected_dependencies)
+app.include_router(github_token_router, dependencies=protected_dependencies)
 app.include_router(study_router, dependencies=protected_dependencies)
 app.include_router(career_router, dependencies=protected_dependencies)
 app.include_router(profile_router, dependencies=protected_dependencies)

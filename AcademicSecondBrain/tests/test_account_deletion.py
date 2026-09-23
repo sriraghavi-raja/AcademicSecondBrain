@@ -10,6 +10,7 @@ from src.rag.ingestion import ingester
 from src.rag.registry import auth as auth_registry
 from src.rag.registry import career, database
 from src.rag.registry import documents as document_registry
+from src.rag.registry import github_credentials
 from src.rag.registry import sessions as session_registry
 from src.rag.registry import skills, study, user_data
 from src.services.account_service import AccountService
@@ -44,6 +45,7 @@ class AccountTestCase(IndexedTestCase):
         career.upsert_profile(user_id, {"full_name": user_id})
         career.upsert_project(user_id, "Project", "Python", "manual", f"ref-{user_id}", "Built a thing.")
         career.record_career_run(user_id, "resume", {})
+        github_credentials.save_token(user_id, f"ghp_{user_id}_token")
         (self.output_dir / f"{user_id}_resume.docx").write_bytes(b"resume")
 
     def rows(self, user_id):

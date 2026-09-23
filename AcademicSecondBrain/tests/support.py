@@ -14,12 +14,16 @@ from src.rag.ingestion import indexer
 from src.rag.registry import auth as auth_registry
 from src.rag.registry import career, database, skills, study
 from src.rag.registry import documents as document_registry
+from src.rag.registry import github_credentials
 from src.rag.retrieval import retreiver
 from src.services.document_service import DocumentService
 
 ORCHID = "orchidalpha"
 GRANITE = "granitebeta"
 QUARTZ = "quartzgamma"
+
+# A throwaway Fernet key, only ever used to make github_credentials encryption exercisable in tests.
+TEST_ENCRYPTION_KEY = "1t-C8yRopRF0MVMT3b98otEVP3C2zopFd_KjgEIwEk4="
 
 
 def article(token: str) -> str:
@@ -42,7 +46,11 @@ class IsolatedDatabaseTestCase(unittest.TestCase):
         study.init_db()
         career.init_db()
         document_registry.init_db()
+        github_credentials.init_db()
         auth_registry.init_db()
+        encryption_key = patch.dict(os.environ, {"GITHUB_TOKEN_ENCRYPTION_KEY": TEST_ENCRYPTION_KEY})
+        encryption_key.start()
+        self.addCleanup(encryption_key.stop)
 
     def tearDown(self):
         database.DB_PATH = self.original_registry_path

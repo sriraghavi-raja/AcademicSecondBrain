@@ -19,6 +19,7 @@ OWNED_TABLES: Tuple[Tuple[str, str], ...] = (
     ("career_runs", "student_id"),
     ("documents", "owner_id"),
     ("sessions", "user_id"),
+    ("github_credentials", "user_id"),
 )
 
 

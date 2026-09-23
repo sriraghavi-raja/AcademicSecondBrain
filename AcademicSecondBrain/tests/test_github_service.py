@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from src.services.github_service import sync_github
+from src.services.github_service import GitHubSyncError, InvalidGitHubToken, sync_github, validate_token
 from tests.support import IsolatedDatabaseTestCase
 
 
@@ -60,6 +60,37 @@ class GitHubServiceTests(IsolatedDatabaseTestCase):
         add.assert_called_once()
         self.assertEqual(add.call_args.kwargs["source_type"], "github")
         self.assertEqual(add.call_args.kwargs["source_ref"], "alice/one")
+
+
+class ValidateTokenTests(unittest.TestCase):
+    def test_a_working_token_returns_the_github_profile(self):
+        def requester(url, headers, **kwargs):
+            self.assertEqual(url, "https://api.github.com/user")
+            self.assertEqual(headers["Authorization"], "Bearer ghp_good")
+            return FakeResponse(200, {"login": "alice"})
+
+        self.assertEqual(validate_token("ghp_good", requester=requester), {"login": "alice"})
+
+    def test_a_rejected_token_raises_invalid_github_token(self):
+        def requester(url, **kwargs):
+            return FakeResponse(401, {})
+
+        with self.assertRaises(InvalidGitHubToken):
+            validate_token("ghp_bad", requester=requester)
+
+    def test_a_forbidden_token_also_raises_invalid_github_token(self):
+        def requester(url, **kwargs):
+            return FakeResponse(403, {})
+
+        with self.assertRaises(InvalidGitHubToken):
+            validate_token("ghp_bad", requester=requester)
+
+    def test_an_upstream_failure_raises_github_sync_error_not_invalid_token(self):
+        def requester(url, **kwargs):
+            return FakeResponse(500, {})
+
+        with self.assertRaises(GitHubSyncError):
+            validate_token("ghp_good", requester=requester)
 
 
 if __name__ == "__main__":
