@@ -7,18 +7,18 @@ from llama_index.core import Settings
 from llama_index.embeddings.openai_like import OpenAILikeEmbedding
 
 from src.rag.synthesis.engine import get_academic_llm
-from src.rag.ingestion.indexer import create_hierarchical_index
-from src.rag.retrieval.retreiver import build_retriever_stack
-from src.rag.ingestion.reader import load_documents_from_path
-from src.rag.ingestion.ingestion import run_ingestion
+from src.rag.ingestion.indexer import PERSIST_DIR, load_or_create_index
+from src.rag.retrieval.retreiver import RetrieverFactory, build_postprocessors
 # from src.api import chat_router
-from src.api import chat_router, sessions_router, documents_router, skills_router, github_router, study_router, career_router, profile_router, dashboard_router, auth_router, admin_router
+from src.api import chat_router, sessions_router, documents_router, skills_router, github_router, github_token_router, study_router, career_router, profile_router, dashboard_router, auth_router, admin_router
 from src.api.auth import get_current_user
 from src.rag.registry import auth as auth_registry
+from src.services.account_service import AccountService
 from src.services.auth_service import AuthService
 from src.rag.registry import skills
 from src.rag.registry import study
 from src.rag.registry import career
+from src.rag.registry import documents as documents_registry
 from src.services import DocumentService, RagService, SessionService
 
 load_dotenv()
@@ -30,6 +30,7 @@ async def lifespan(app: FastAPI):
     skills.init_db()
     study.init_db()
     career.init_db()
+    documents_registry.init_db()
     # 1. Fetch Groq API Key from environment
     groq_api_key = os.getenv("GROQ_API_KEY")
     if not groq_api_key:
@@ -43,7 +44,6 @@ async def lifespan(app: FastAPI):
     app.state.llm = groq_llm
 
     # 3. Configure Local Embedding Model dynamically via Env
-    data_path = os.path.join("src", "data")
     embed_api_base = os.getenv("EMBEDDING_API_BASE", "http://localhost:1234/v1")
 
     Settings.embed_model = OpenAILikeEmbedding(
@@ -52,27 +52,29 @@ async def lifespan(app: FastAPI):
     api_key="lm-studio",
 )
 
-    # Ingestion & Indexing
-    print("1. Loading documents & running ingestion pipeline...")
-    documents = load_documents_from_path(data_path)
-    all_nodes, leaf_nodes = run_ingestion(documents)
+    # Documents are ingested per user through the upload endpoint, never at startup
+    print("1. Creating/Loading hierarchical index...")
+    index = load_or_create_index()
 
-    print("\n2. Creating/Loading hierarchical index...")
-    index = create_hierarchical_index(all_nodes, leaf_nodes)
-
-    print("\n3. Building retriever and postprocessors...")
-    retriever, postprocessors = build_retriever_stack(index)
+    print("\n2. Building retriever factory and postprocessors...")
+    retriever_factory = RetrieverFactory(index)
+    postprocessors = build_postprocessors()
 
     # Store state globally for routers to access
     app.state.index = index
-    app.state.retriever = retriever
+    app.state.retriever_factory = retriever_factory
     app.state.postprocessors = postprocessors
-    app.state.rag_service = RagService(retriever, groq_llm, postprocessors)
+    app.state.rag_service = RagService(retriever_factory, groq_llm, postprocessors)
     app.state.document_service = DocumentService(
         index=index,
-        retriever=retriever,
+        retriever_factory=retriever_factory,
         upload_dir=os.getenv("UPLOAD_DIR", "uploads"),
+        persist_dir=PERSIST_DIR,
     )
+    app.state.account_service = AccountService(app.state.auth_service, app.state.document_service)
+    recovered = app.state.document_service.recover_interrupted_uploads()
+    if recovered:
+        print(f"\nCleaned up {recovered} upload(s) that were interrupted by the last shutdown.")
     app.state.session_service = SessionService()
 
     yield
@@ -107,6 +109,7 @@ app.include_router(sessions_router, dependencies=protected_dependencies)
 app.include_router(documents_router, dependencies=protected_dependencies)
 app.include_router(skills_router, dependencies=protected_dependencies)
 app.include_router(github_router, dependencies=protected_dependencies)
+app.include_router(github_token_router, dependencies=protected_dependencies)
 app.include_router(study_router, dependencies=protected_dependencies)
 app.include_router(career_router, dependencies=protected_dependencies)
 app.include_router(profile_router, dependencies=protected_dependencies)
@@ -118,7 +121,7 @@ app.include_router(admin_router)
 def health_check(request: Request):
     return {
         "status": "healthy",
-        "pipeline_ready": hasattr(request.app.state, "retriever") and request.app.state.retriever is not None
+        "pipeline_ready": getattr(request.app.state, "retriever_factory", None) is not None
     }
 
 

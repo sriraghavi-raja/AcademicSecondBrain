@@ -16,10 +16,6 @@ class AuthError(Exception):
     pass
 
 
-class AuthorizationError(AuthError):
-    pass
-
-
 class AuthService:
     def __init__(self, secret_key: str | None = None, access_minutes: int = 15, refresh_days: int = 30):
         self.secret_key = secret_key or os.getenv("JWT_SECRET_KEY")
@@ -83,13 +79,13 @@ class AuthService:
         college_name: str,
         college_year: str,
         role: str = "student",
-        admin_signup_key: str | None = None,
     ) -> dict[str, Any]:
+        """Creates an account. The caller is responsible for authorizing role="admin" — this
+        method itself trusts whatever role it's given (the public signup endpoint never passes
+        anything but "student"; only the admin-only user-creation endpoint can request "admin").
+        """
         if role not in {"student", "admin"}:
             raise AuthError("role must be student or admin")
-        configured_admin_key = os.getenv("ADMIN_SIGNUP_KEY")
-        if role == "admin" and (not configured_admin_key or admin_signup_key != configured_admin_key):
-            raise AuthorizationError("Admin signup requires a valid server-side signup key")
         user = (
             str(uuid4()), name.strip(), email.strip().lower(), self._password_hash(password),
             college_name.strip(), college_year.strip(), role, self._now().isoformat(),
@@ -107,11 +103,11 @@ class AuthService:
             raise AuthError("Name or email is already registered") from error
         return self._tokens(created_user)
 
-    def login(self, name: str, password: str) -> dict[str, Any]:
+    def login(self, email: str, password: str) -> dict[str, Any]:
         with auth_registry.get_db_connection() as connection:
-            user = connection.execute("SELECT * FROM users WHERE name = ?", (name.strip(),)).fetchone()
+            user = connection.execute("SELECT * FROM users WHERE email = ?", (email.strip(),)).fetchone()
         if user is None or not self._password_matches(password, user["password_hash"]):
-            raise AuthError("Invalid name or password")
+            raise AuthError("Invalid email or password")
         return self._tokens(user)
 
     def _tokens(self, user: sqlite3.Row) -> dict[str, Any]:
@@ -166,6 +162,16 @@ class AuthService:
             users = connection.execute("SELECT * FROM users ORDER BY created_at").fetchall()
         return [self._user_response(user) for user in users]
 
+    def get_users_by_ids(self, user_ids: list[str]) -> list[dict[str, Any]]:
+        if not user_ids:
+            return []
+        placeholders = ",".join("?" for _ in user_ids)
+        with auth_registry.get_db_connection() as connection:
+            users = connection.execute(
+                f"SELECT * FROM users WHERE user_id IN ({placeholders})", user_ids
+            ).fetchall()
+        return [self._user_response(user) for user in users]
+
     def get_user(self, user_id: str) -> dict[str, Any] | None:
         with auth_registry.get_db_connection() as connection:
             user = connection.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
@@ -184,6 +190,8 @@ class AuthService:
 
     def delete_user(self, user_id: str) -> None:
         with auth_registry.get_db_connection() as connection:
+            # SQLite does not enforce the ON DELETE CASCADE on refresh_sessions unless foreign keys are switched on
+            connection.execute("DELETE FROM refresh_sessions WHERE user_id = ?", (user_id,))
             cursor = connection.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
             connection.commit()
         if cursor.rowcount == 0:

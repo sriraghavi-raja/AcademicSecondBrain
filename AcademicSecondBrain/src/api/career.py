@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 from src.rag.registry.career import get_profile, upsert_profile, upsert_project
+from src.rag.registry.sessions import SessionNotFoundError
 from src.api.auth import get_current_user
 from src.services.career_service import extract_certification, generate_resume, suggest_skill_gaps
 from src.services.interview_service import continue_interview, end_interview, start_interview
@@ -110,13 +111,25 @@ async def interview_start(
 
 
 @router.post("/interview/continue")
-async def interview_continue(data: InterviewContinueRequest, request: Request):
-    return await continue_interview(data.session_id, data.answer, request.app.state.llm)
+async def interview_continue(
+    data: InterviewContinueRequest,
+    request: Request,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    try:
+        return await continue_interview(
+            current_user["user_id"], data.session_id, data.answer, request.app.state.llm
+        )
+    except SessionNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
 
 
 @router.post("/interview/end")
-def interview_end(data: InterviewEndRequest):
-    return end_interview(data.session_id)
+def interview_end(data: InterviewEndRequest, current_user: Annotated[dict, Depends(get_current_user)]):
+    try:
+        return end_interview(current_user["user_id"], data.session_id)
+    except SessionNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
 
 
 @profile_router.put("")
@@ -179,7 +192,6 @@ async def create_resume(
     try:
         result = await generate_resume(
             current_user["user_id"],
-            request.app.state.retriever,
             request.app.state.llm,
             data.target_role,
         )

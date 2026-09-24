@@ -12,6 +12,7 @@ from src.services.career_service import (
     group_skills_by_category,
     suggest_skill_gaps,
 )
+from tests.support import IsolatedDatabaseTestCase
 
 
 class FakeLLM:
@@ -24,8 +25,9 @@ class FakeLLM:
         return SimpleNamespace(text=self.output)
 
 
-class CareerTests(unittest.TestCase):
+class CareerTests(IsolatedDatabaseTestCase):
     def setUp(self):
+        super().setUp()
         self.profile = {
             "student_id": "student-1", "full_name": "Sri Raghavi N", "email": "student@example.com",
             "phone": "123", "location": "Coimbatore", "college_name": "Example Institute",
@@ -64,7 +66,7 @@ class CareerTests(unittest.TestCase):
              patch("src.services.career_service.get_projects", return_value=[project]), \
              patch("src.services.career_service.get_achievements", return_value=[]):
             with tempfile.TemporaryDirectory() as output_dir:
-                result = asyncio.run(generate_resume("student-1", object(), llm, "Python Developer", output_dir))
+                result = asyncio.run(generate_resume("student-1", llm, "Python Developer", output_dir))
                 self.assertTrue(os.path.exists(result["file_path"]))
                 self.assertEqual(len(result["data"]["projects"][0]["bullets"]), 1)
                 self.assertIn("Python Developer", llm.prompts[0])

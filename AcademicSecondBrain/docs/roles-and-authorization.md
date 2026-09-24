@@ -95,7 +95,15 @@ Resource IDs are still sent when they identify a specific object rather than an 
 
 The JWT-derived ownership rule is implemented for skills, profiles, career records, GitHub evidence, quiz attempts, weak topics, study-plan creation, and other student-scoped operations that pass the authenticated user ID into their services.
 
-The current legacy document and chat stores use resource IDs such as `document_id` and `session_id`. Those routes require authentication, but their underlying records are not yet linked to an owner in the database. Do not describe those routes as strict per-student isolation until document and chat-session ownership columns are added and checked.
+Chat sessions and mock-interview sessions are owned by the user who created them (`sessions.user_id`). A session that does not exist, belongs to another user, or has another type returns `404`.
+
+Documents are owned through an `owner_id` stamped on every indexed node at upload. Retrieval (vector and BM25), the document list, and document delete only ever see the caller's own nodes, so one user's chat can never retrieve another user's documents.
+
+Each upload gets a server-generated `document_id` recorded with its owner in the `documents` table, and files are stored under `uploads/<user_id>/<document_id>/` with a fixed name, so two users can upload the same filename without touching each other. Quiz generation and syllabus parsing only read the caller's own document.
+
+The study endpoints are owner-scoped too: quizzes and study plans only accept the caller's own documents (`404` otherwise), parsed syllabus topics are stored per student, a study plan can only be exported by the user who created it, and quiz attempts are only accepted for the caller's own indexed documents.
+
+Deleting a user removes all of their data (documents and index entries, stored files, sessions, skills, study and career records, generated resumes, and refresh tokens). The data is removed first and the account last, so a failed deletion can be repeated.
 
 ## 4. Student permissions
 
@@ -105,8 +113,8 @@ Students can use their own academic and career features.
 |---|---|
 | Authentication | Signup, login, refresh, logout, own account details |
 | Profile | View and update own profile |
-| Documents | Upload, list, and delete documents through the current document service |
-| Chat | Chat and manage chat sessions |
+| Documents | Upload, list, and delete their own documents |
+| Chat | Chat over their own documents and manage their own chat sessions |
 | Skills | View own skills and add own skill evidence |
 | GitHub | Sync own GitHub repositories |
 | Study plans | Create own study plans and export them |
@@ -131,7 +139,7 @@ Admin endpoints:
 | `GET` | `/api/admin/users` | List users |
 | `GET` | `/api/admin/users/{user_id}` | View one user's account details |
 | `PATCH` | `/api/admin/users/{user_id}/role` | Change a user's role |
-| `DELETE` | `/api/admin/users/{user_id}` | Delete another user's account |
+| `DELETE` | `/api/admin/users/{user_id}` | Delete another user's account and all of their data |
 
 Admin endpoints require:
 
@@ -358,7 +366,7 @@ When an endpoint returns `403`:
 
 - Never trust a role sent by the frontend without backend validation.
 - Never use a URL `student_id` to decide ownership.
-- Treat authenticated-only access as different from strict per-user ownership for legacy documents and chat sessions.
+- Any new table that stores per-user data must be added to `user_data.OWNED_TABLES`; a test fails if one is forgotten, so account deletion cannot silently leave data behind.
 - Never expose password hashes or refresh-token hashes in API responses.
 - Never expose `ADMIN_SIGNUP_KEY` to the browser.
 - Do not put access tokens or refresh tokens in URLs.

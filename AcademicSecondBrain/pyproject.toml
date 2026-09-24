@@ -29,4 +29,6 @@ dependencies = [
     "bcrypt>=4.0.0",
     "pyjwt>=2.8.0",
     "pydantic[email]>=2.0.0",
+    "cryptography>=50.0.1",
+    "llama-index-tools-mcp>=0.6.0",
 ]

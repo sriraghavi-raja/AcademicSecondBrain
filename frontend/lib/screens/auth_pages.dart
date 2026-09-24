@@ -103,13 +103,15 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
-  final name = TextEditingController();
+  final email = TextEditingController();
   final password = TextEditingController();
   bool _obscure = true;
 
+  static final _emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+
   @override
   void dispose() {
-    name.dispose();
+    email.dispose();
     password.dispose();
     super.dispose();
   }
@@ -117,7 +119,7 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> submit() async {
     FocusScope.of(context).unfocus();
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    final ok = await widget.auth.login(name.text.trim(), password.text);
+    final ok = await widget.auth.login(email.text.trim(), password.text);
     if (!mounted) return;
     if (ok) {
       // AcademicSecondBrainApp listens to `auth` and will swap to HomeShell
@@ -143,15 +145,16 @@ class _LoginPageState extends State<LoginPage> {
                 : _ErrorBanner(message: widget.auth.error!),
           ),
           TextFormField(
-            controller: name,
+            controller: email,
             textInputAction: TextInputAction.next,
-            autofillHints: const [AutofillHints.username],
+            keyboardType: TextInputType.emailAddress,
+            autofillHints: const [AutofillHints.email],
             decoration: const InputDecoration(
-              labelText: 'Name',
-              prefixIcon: Icon(Icons.person_outline),
+              labelText: 'Email',
+              prefixIcon: Icon(Icons.alternate_email),
             ),
-            validator: (value) => (value == null || value.trim().isEmpty)
-                ? 'Enter your name'
+            validator: (value) => (value == null || !_emailRegex.hasMatch(value.trim()))
+                ? 'Enter a valid email'
                 : null,
           ),
           const SizedBox(height: 14),
@@ -217,8 +220,6 @@ class _LoginPageState extends State<LoginPage> {
 // Signup
 // ---------------------------------------------------------------------------
 
-enum _SignupRole { student, admin }
-
 class SignupPage extends StatefulWidget {
   const SignupPage({required this.auth, super.key});
   final AuthController auth;
@@ -235,8 +236,6 @@ class _SignupPageState extends State<SignupPage> {
   final confirmPassword = TextEditingController();
   final collegeName = TextEditingController();
   final collegeYear = TextEditingController();
-  final adminKey = TextEditingController();
-  _SignupRole role = _SignupRole.student;
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
 
@@ -250,7 +249,6 @@ class _SignupPageState extends State<SignupPage> {
     confirmPassword.dispose();
     collegeName.dispose();
     collegeYear.dispose();
-    adminKey.dispose();
     super.dispose();
   }
 
@@ -264,12 +262,8 @@ class _SignupPageState extends State<SignupPage> {
       'confirm_password': confirmPassword.text,
       'college_name': collegeName.text.trim(),
       'college_year': collegeYear.text.trim(),
-      'role': role == _SignupRole.admin ? 'admin' : 'student',
     };
-    final ok = await widget.auth.signup(
-      fields,
-      adminKey: role == _SignupRole.admin ? adminKey.text : null,
-    );
+    final ok = await widget.auth.signup(fields);
     if (!mounted) return;
     if (ok) {
       Navigator.of(context).popUntil((route) => route.isFirst);
@@ -395,51 +389,6 @@ class _SignupPageState extends State<SignupPage> {
               if (v.length > 20) return 'Keep it under 20 characters';
               return null;
             },
-          ),
-          const SizedBox(height: 24),
-          const _SectionLabel('Account type'),
-          const SizedBox(height: 8),
-          SegmentedButton<_SignupRole>(
-            segments: const [
-              ButtonSegment(
-                value: _SignupRole.student,
-                icon: Icon(Icons.school_outlined),
-                label: Text('Student'),
-              ),
-              ButtonSegment(
-                value: _SignupRole.admin,
-                icon: Icon(Icons.admin_panel_settings_outlined),
-                label: Text('Admin'),
-              ),
-            ],
-            selected: {role},
-            onSelectionChanged: (selection) =>
-                setState(() => role = selection.first),
-          ),
-          AnimatedSize(
-            duration: const Duration(milliseconds: 180),
-            child: role == _SignupRole.admin
-                ? Padding(
-                    padding: const EdgeInsets.only(top: 14),
-                    child: TextFormField(
-                      controller: adminKey,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Admin signup key',
-                        prefixIcon: Icon(Icons.vpn_key_outlined),
-                        helperText:
-                            'Provided by your organization to create an '
-                            'admin account.',
-                      ),
-                      validator: (value) {
-                        if (role != _SignupRole.admin) return null;
-                        return (value == null || value.trim().isEmpty)
-                            ? 'Enter the admin signup key'
-                            : null;
-                      },
-                    ),
-                  )
-                : const SizedBox.shrink(),
           ),
           const SizedBox(height: 26),
           AnimatedBuilder(

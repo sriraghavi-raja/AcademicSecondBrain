@@ -163,6 +163,60 @@ def upsert_skill_evidence(
         return int(row[0])
 
 
+def list_skill_names_with_evidence() -> List[str]:
+    """Every distinct skill name that at least one student has evidence for — the source for an
+    admin-facing skill filter, so only skills that could ever actually match something are offered.
+    """
+    with get_db_connection() as conn:
+        rows = conn.execute("SELECT DISTINCT skill_name FROM skill_evidence ORDER BY skill_name")
+        return [row[0] for row in rows]
+
+
+def match_students_by_skills(
+    skill_names: List[str],
+    match: str = "any",
+    min_confidence: float = 0.0,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Which students have which of the given skills, at or above min_confidence.
+
+    A student's confidence for a skill is the highest confidence across all of their evidence for
+    it — the same figure their own skill graph shows (see skill_service.get_skill_graph), so an
+    admin's filtered results agree with what a student sees about themselves.
+
+    match="any": a student needs at least one of skill_names. match="all": every one of them.
+    Returns {student_id: [{"skill_name": ..., "confidence": ...}, ...]}.
+    """
+    if match not in {"any", "all"}:
+        raise ValueError("match must be 'any' or 'all'")
+    if not skill_names:
+        return {}
+    placeholders = ",".join("?" for _ in skill_names)
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT student_id, skill_name, MAX(confidence) AS confidence
+            FROM skill_evidence
+            WHERE skill_name IN ({placeholders})
+            GROUP BY student_id, skill_name
+            HAVING MAX(confidence) >= ?
+            """,
+            (*skill_names, min_confidence),
+        ).fetchall()
+
+    by_student: Dict[str, List[Dict[str, Any]]] = {}
+    for student_id, skill_name, confidence in rows:
+        by_student.setdefault(student_id, []).append({"skill_name": skill_name, "confidence": confidence})
+
+    if match == "all":
+        required = set(skill_names)
+        by_student = {
+            student_id: matched
+            for student_id, matched in by_student.items()
+            if {m["skill_name"] for m in matched} >= required
+        }
+    return by_student
+
+
 def select_skills(student_id: str) -> List[Dict[str, Any]]:
     with get_db_connection() as conn:
         cursor = conn.execute(

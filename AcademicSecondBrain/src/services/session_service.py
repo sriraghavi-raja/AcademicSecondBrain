@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from src.rag.registry.sessions import (
+    SessionNotFoundError,
     delete_session,
     get_session_history,
     list_sessions,
@@ -11,12 +12,12 @@ from src.rag.registry.sessions import (
 
 
 class SessionService:
-    def list_sessions(self) -> list[dict[str, Any]]:
-        sessions = list_sessions()
+    def list_sessions(self, user_id: str) -> list[dict[str, Any]]:
+        sessions = list_sessions(user_id)
         mapped_sessions = []
         for session in sessions:
             session_id = session["session_id"]
-            history = get_session_history(session_id)
+            history = get_session_history(user_id, session_id) or []
             title = f"New Chat ({session_id[:4]})"
             for message in history:
                 if message["role"] == "user":
@@ -36,7 +37,10 @@ class SessionService:
             )
         return mapped_sessions
 
-    def get_history(self, session_id: str) -> list[dict[str, Any]]:
+    def get_history(self, user_id: str, session_id: str) -> list[dict[str, Any]]:
+        history = get_session_history(user_id, session_id)
+        if history is None:
+            raise SessionNotFoundError("Session not found")
         return [
             {
                 "id": index + 1,
@@ -44,9 +48,10 @@ class SessionService:
                 "content": message["content"],
                 "timestamp": datetime.utcnow().isoformat(),
             }
-            for index, message in enumerate(get_session_history(session_id))
+            for index, message in enumerate(history)
         ]
 
-    def delete_session(self, session_id: str) -> dict[str, str]:
-        delete_session(session_id)
+    def delete_session(self, user_id: str, session_id: str) -> dict[str, str]:
+        if not delete_session(user_id, session_id):
+            raise SessionNotFoundError("Session not found")
         return {"message": "Session deleted"}

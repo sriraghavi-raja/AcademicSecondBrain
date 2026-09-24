@@ -3,112 +3,116 @@ import os
 from typing import List, Dict, Any, Union
 from pathlib import Path
 from llama_index.core import VectorStoreIndex
-from llama_index.retrievers.bm25 import BM25Retriever
 
+from src.rag.ingestion.metadata import FILE_KEY, OWNER_KEY, stamp_documents
 from src.rag.ingestion.reader import load_documents_from_path
 from src.rag.ingestion.ingestion import run_ingestion
 
 ingest_lock = threading.Lock()
 
 
+def _purge_nodes(index: VectorStoreIndex, owner_id: str, file_id: str = None) -> int:
+    """
+    Removes nodes from Chroma and the docstore: one upload's nodes, or all of owner_id's nodes when file_id
+    is None. Caller must hold ingest_lock.
+
+    Nodes are found by owner (and file id) and removed one by one, so nothing that belongs to another
+    upload or another user can be swept up.
+    """
+    nodes = {
+        node_id: node
+        for node_id, node in list(index.docstore.docs.items())
+        if node.metadata.get(OWNER_KEY) == owner_id
+        and (file_id is None or node.metadata.get(FILE_KEY) == file_id)
+    }
+
+    # Purge vector embeddings first (only leaf nodes are embedded). If this fails nothing else has changed.
+    leaf_ids = [node_id for node_id, node in nodes.items() if not node.child_nodes]
+    if leaf_ids:
+        index.vector_store.delete_nodes(node_ids=leaf_ids)
+
+    for node_id in nodes:
+        index.docstore.delete_document(node_id, raise_error=False)
+    return len(nodes)
+
+
 def ingest_new_documents(
         file_paths: List[Union[str, Path]],
         index: VectorStoreIndex,
+        owner_id: str,
+        file_id: str,
+        display_name: str,
         persist_dir: str = None
 ) -> Dict[str, Any]:
     """
-    Dynamically ingests new documents into the live VectorStoreIndex.
-    Force-inserts everything without checking for duplicates.
+    Dynamically ingests one upload into the live VectorStoreIndex, owned by owner_id.
+
+    If anything fails while the nodes are being added, every node of this upload is removed again so the
+    docstore and the vector store never disagree.
     """
     if persist_dir is None:
         persist_dir = os.getenv("PERSIST_DIR", "./storage")
 
     with ingest_lock:
-        # 1. Load Documents
+        # 1. Load Documents and mark them with their owner and upload id
         documents = load_documents_from_path(file_paths)
+        stamp_documents(documents, owner_id, file_id, display_name)
 
         # 2. Run ingestion
         all_nodes, leaf_nodes = run_ingestion(documents)
 
-        # 3. Native Runtime Insert: Inject vectors and docstore nodes live
-        index.docstore.add_documents(all_nodes)
-        index.insert_nodes(leaf_nodes)
+        try:
+            # 3. Native Runtime Insert: Inject vectors and docstore nodes live
+            index.docstore.add_documents(all_nodes)
+            index.insert_nodes(leaf_nodes)
 
-        # 4. Save to disk so it survives a server restart
-        index.storage_context.persist(persist_dir=persist_dir)
-
-        # 5. Rebuild BM25 Retriever with the newly expanded docstore
-        bm25_retriever = BM25Retriever.from_defaults(
-            docstore=index.docstore,
-            similarity_top_k=12
-        )
+            # 4. Save to disk so it survives a server restart
+            index.storage_context.persist(persist_dir=persist_dir)
+        except Exception:
+            _purge_nodes(index, owner_id, file_id)
+            try:
+                index.storage_context.persist(persist_dir=persist_dir)
+            except Exception:
+                pass  # best effort: the next successful write persists the cleaned state
+            raise
 
         return {
             "status": "success",
             "message": f"Successfully ingested file(s).",
             "added_total_nodes": len(all_nodes),
-            "added_leaf_nodes": len(leaf_nodes),
-            "bm25_retriever": bm25_retriever
+            "added_leaf_nodes": len(leaf_nodes)
         }
 
 
-def delete_document(
-        file_name: str,
+def remove_file_nodes(
         index: VectorStoreIndex,
-        retriever_wrapper: Any,
+        owner_id: str,
+        file_id: str,
         persist_dir: str = None
-) -> Dict[str, Any]:
+) -> int:
+    """Erases one of owner_id's uploads from ChromaDB and the local docstore. Returns the nodes removed."""
+    if persist_dir is None:
+        persist_dir = os.getenv("PERSIST_DIR", "./storage")
+
+    with ingest_lock:
+        removed = _purge_nodes(index, owner_id, file_id)
+        index.storage_context.persist(persist_dir=persist_dir)
+        return removed
+
+
+def remove_owner_nodes(
+        index: VectorStoreIndex,
+        owner_id: str,
+        persist_dir: str = None
+) -> int:
     """
-    Completely erases a document from both ChromaDB and the local docstore
-    by scrubbing all associated parent and child node IDs directly.
+    Erases everything owner_id has in ChromaDB and the local docstore, including nodes that no document
+    record points to any more. Returns the nodes removed. Safe to repeat.
     """
     if persist_dir is None:
         persist_dir = os.getenv("PERSIST_DIR", "./storage")
 
     with ingest_lock:
-        clean_query = file_name.strip().lower()
-
-        nodes_to_delete = []
-        ref_doc_ids_to_delete = set()
-
-        # 1. Scan docstore to collect all matching node IDs and parent ref_doc_ids
-        for node_id, node in list(index.docstore.docs.items()):
-            meta_name = node.metadata.get("file_name", "").lower()
-            meta_path = node.metadata.get("file_path", "").lower()
-
-            if clean_query == meta_name or clean_query == meta_path or clean_query in meta_name:
-                nodes_to_delete.append(node_id)
-                if node.ref_doc_id:
-                    ref_doc_ids_to_delete.add(node.ref_doc_id)
-
-        if not nodes_to_delete and not ref_doc_ids_to_delete:
-            return {"status": "error", "message": f"Document '{file_name}' not found."}
-
-        # 2. Purge vector embeddings from ChromaDB
-        for ref_id in ref_doc_ids_to_delete:
-            try:
-                index.delete_ref_doc(ref_id, delete_from_docstore=False)
-            except Exception:
-                pass
-
-        # 3. Explicitly remove all nodes (parents + children) from the local docstore
-        for node_id in nodes_to_delete:
-            index.docstore.delete_document(node_id, raise_error=False)
-
-        for ref_id in ref_doc_ids_to_delete:
-            index.docstore.delete_document(ref_id, raise_error=False)
-
-        # 4. Persist updated storage context to disk
+        removed = _purge_nodes(index, owner_id)
         index.storage_context.persist(persist_dir=persist_dir)
-
-        # 5. Rebuild BM25 retriever from the pruned docstore and hot-swap
-        new_bm25_retriever = BM25Retriever.from_defaults(
-            docstore=index.docstore,
-            similarity_top_k=12
-        )
-        retriever_wrapper.update_bm25(new_bm25_retriever)
-
-        return {
-            "status": "success",
-            "message": f"Document '{file_name}' permanently deleted ({len(nodes_to_delete)} docstore nodes removed)."
-        }
+        return removed
